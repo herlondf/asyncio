@@ -832,8 +832,17 @@ end;
 // ---------------------------------------------------------------------------
 
 function TUringRing._RecvPoolAcquire: Pointer;
+// Exhaustion fallback allocates via a properly-typed PRecvCtx local — New()
+// on a variable of the generic Pointer type does not know SizeOf(TRecvCtx)
+// and (observed on this Linux/glibc runtime) can hand back a null pointer,
+// which the caller then dereferences unconditionally. Reproduced with
+// Autobahn 12.2.17 (#226): under sustained heavy fragmented-message load the
+// per-ring 256-slot pool exhausts, this path fires, and PostRecv crashed with
+// an EAccessViolation at address 0 — silently caught by the worker/CQE
+// exception guard, but the recv was never posted, stalling the connection.
 var
   LIdx: Integer;
+  LCtx: PRecvCtx;
 begin
   FRecvPoolLock.Acquire;
   try
@@ -847,7 +856,8 @@ begin
   finally
     FRecvPoolLock.Release;
   end;
-  New(Result);
+  New(LCtx);
+  Result := LCtx;
 end;
 
 procedure TUringRing._RecvPoolRelease(ACtx: Pointer);
@@ -868,7 +878,7 @@ begin
     end;
   end
   else
-    Dispose(ACtx);
+    Dispose(PRecvCtx(ACtx));
 end;
 
 // ---------------------------------------------------------------------------
