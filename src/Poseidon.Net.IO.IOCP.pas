@@ -43,7 +43,7 @@ type
     FAcceptCtxs: array of Pointer;  // PAcceptCtx, allocated in StartListening
     FDisconnectEx: Pointer;
     procedure _LoadExtensions;
-    procedure _PostOneAccept(AIdx: Integer);
+    procedure _PostOneAccept(AIdx: Integer; ARetriesLeft: Integer = 3);
     procedure _WorkerLoop;
     procedure _OnRecvReady(AConn: Pointer);
   public
@@ -68,6 +68,36 @@ type
   end;
 
 implementation
+
+// #223: WSAStartup/WSACleanup are process-wide (refcounted internally by
+// Winsock itself), but each TIOCPBackend instance previously called
+// WSAStartup on Start and WSACleanup on JoinWorkers unconditionally. Two
+// TPoseidonNativeServer instances created sequentially in one process (as
+// DUnitX's SyncDispatch and async DeferredResponse fixtures do — the
+// second's SetupFixture runs right after the first's TeardownFixture) can
+// then race: the first instance's WSACleanup tears down Winsock
+// process-wide for however long it takes the second instance to call
+// WSAStartup again, and ANY other Winsock user active in that window (this
+// test suite's own raw-socket HTTP client included, which never calls
+// WSAStartup itself and relies on some server instance having already done
+// so) sees connect()/socket() fail with no server-side error at all — this
+// got much easier to hit once Stop() itself got fast (see the drain-loop
+// fix above), leaving less incidental time for things to settle.
+// Fix: initialize Winsock at most once per process and never tear it down
+// during normal operation — the standard pattern for a library that can't
+// know whether it is the process's only Winsock user. WSACleanup is
+// harmless to skip; Windows reclaims everything at process exit regardless.
+var
+  GWinsockStarted: Integer;  // 0 = not yet, 1 = started; CAS-guarded, never reset
+
+procedure _WinsockAcquire;
+var
+  LWsaData: TWSAData;
+begin
+  if TInterlocked.CompareExchange(GWinsockStarted, 1, 0) = 0 then
+    if WSAStartup($0202, LWsaData) <> 0 then
+      raise Exception.Create('WSAStartup failed');
+end;
 
 // ---------------------------------------------------------------------------
 // IOCP kernel imports
@@ -327,7 +357,7 @@ begin
     FDisconnectEx := nil;  // DisconnectEx is optional; fallback to closesocket
 end;
 
-procedure TIOCPBackend._PostOneAccept(AIdx: Integer);
+procedure TIOCPBackend._PostOneAccept(AIdx: Integer; ARetriesLeft: Integer);
 var
   LCtx: PAcceptCtx;
   LAcceptSocket: TSocket;
@@ -361,6 +391,20 @@ begin
     begin
       closesocket(LAcceptSocket);
       LCtx^.AcceptSocket := INVALID_SOCKET;
+      // #223: AcceptEx can fail transiently (observed right after another
+      // Winsock user in the same process tears down/reinitializes sockets —
+      // e.g. two TPoseidonNativeServer instances cycling in one test
+      // process). Previously this abandoned the slot forever with no retry
+      // and no log; losing even a few of the CAcceptPoolSize slots this way
+      // eventually starves the whole accept pool, matching the #224
+      // io_uring accept-rearm bug in spirit. Retry a bounded number of
+      // times before giving up on this slot for good.
+      if (TInterlocked.Read(FShutdown) = 0) and (ARetriesLeft > 0) then
+        _PostOneAccept(AIdx, ARetriesLeft - 1)
+      else if ARetriesLeft <= 0 then
+        Writeln(ErrOutput, '[iocp] AcceptEx slot ', AIdx,
+          ' permanently failed to re-arm after retries (errno ',
+          WSAGetLastError, ')');
     end;
   end;
 end;
@@ -371,13 +415,11 @@ procedure TIOCPBackend.StartListening(const AHost: string; APort: Integer;
 var
   LAddr: TSockAddrIn;
   LOne: Integer;
-  LWsaData: TWSAData;
   I: Integer;
 begin
   FCallbacks := ACallbacks;
 
-  if WSAStartup($0202, LWsaData) <> 0 then
-    raise Exception.Create('WSAStartup failed');
+  _WinsockAcquire;
 
   FIocp := _IocpCreate(INVALID_HANDLE_VALUE, 0, 0, 0);
   if FIocp = 0 then RaiseLastOSError;
@@ -488,7 +530,7 @@ begin
     CloseHandle(FIocp);
     FIocp := 0;
   end;
-  WSACleanup;
+  // #223: deliberately no WSACleanup — see _WinsockAcquire comment above.
 end;
 
 procedure TIOCPBackend.RegisterConn(AConn: Pointer);

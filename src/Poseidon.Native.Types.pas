@@ -147,6 +147,8 @@ end;
 
 function TNativeRequestContext.Defer: IPoseidonResponder;
 begin
+  if Deferred then
+    raise Exception.Create('Poseidon: Ctx.Defer called more than once for the same request.');
   if not Assigned(GPoseidonDeferHook) then
     raise Exception.Create(
       'Poseidon: deferred responses are unavailable — no active native server, ' +

@@ -1456,6 +1456,9 @@ end;
 procedure TPoseidonNativeServer.Stop;
 const
   CDrainPollMs = 50;
+  // #223: once FInFlightCount reaches 0, no live request needs protecting —
+  // cap how much longer we wait for stragglers to close themselves.
+  CPostIdleCloseGraceMs = 2000;
 var
   I:         Integer;
   LConn:     TNativeConn;
@@ -1464,6 +1467,7 @@ var
   LNowTick:  UInt64;
   LRemain:   Cardinal;
   LDrained:  Boolean;
+  LIdleGraceDeadline: UInt64;
 begin
   if not FActive then Exit;
   FActive := False;
@@ -1493,10 +1497,27 @@ begin
   // mean fully drained (single-fire trap: late worker would find a
   // half-destroyed server otherwise).
   LDeadline := TThread.GetTickCount64 + UInt64(FDrainTimeoutMs);
+  LIdleGraceDeadline := 0;
   while (TInterlocked.Read(FInFlightCount) > 0) or (FConnManager.Count > 0) do
   begin
     LNowTick := TThread.GetTickCount64;
     if LNowTick >= LDeadline then Break;
+    if TInterlocked.Read(FInFlightCount) = 0 then
+    begin
+      // No dispatch is actively using any connection any more. A survivor at
+      // this point is either an idle keep-alive or one whose ShutdownConn
+      // (issued above, or by a dropped Ctx.Defer responder — see
+      // TPoseidonResponder.Teardown) is waiting for a completion that may
+      // never come, because IdleSweep — the only other thing that would
+      // eventually force-close it — was just stopped a few lines up. Give
+      // survivors a short grace to close themselves instead of burning the
+      // full FDrainTimeoutMs; step 5 below force-closes anything still
+      // registered afterward regardless, so this cannot skip real cleanup.
+      if LIdleGraceDeadline = 0 then
+        LIdleGraceDeadline := LNowTick + CPostIdleCloseGraceMs
+      else if LNowTick >= LIdleGraceDeadline then
+        Break;
+    end;
     LRemain := Cardinal(LDeadline - LNowTick);
     if LRemain > CDrainPollMs then LRemain := CDrainPollMs;
     FDrainEvent.WaitFor(LRemain);
