@@ -9,6 +9,16 @@ unit Poseidon.Net.Pool.Socket;
 // Pool is bounded (CMaxPoolSize) to avoid holding too many kernel handles.
 // If the pool is full, the socket is closed normally.
 //
+// #225: one instance per IO backend (TIOCPBackend/TRIOBackend), NOT a
+// process-wide singleton. A socket recycled via DisconnectEx stays
+// associated with whichever completion port first called
+// CreateIoCompletionPort on it; if a different backend instance's pool
+// handed that socket back out, RegisterConn's tolerance of
+// ERROR_INVALID_PARAMETER (see #203) would silently accept it as "already
+// associated with the port we need" when it was actually still bound to a
+// different (possibly already-closed) instance's port — completions for
+// that connection then never reach the new instance's IOCP.
+//
 // Windows only. On Linux, this unit compiles as an empty stub.
 
 {$IFDEF MSWINDOWS}
@@ -25,7 +35,7 @@ uses
 
 type
   TSocketPool = class
-  private class var
+  private
     FPool: array of TSocket;
     FCount: Integer;
     // FPC's TMonitor is non-functional (TMonitor.Enter AVs), so under FPC this
@@ -34,24 +44,24 @@ type
     FDisconnectEx: Pointer;
     FLoaded: Boolean;
   public
-    class procedure Initialize; static;
-    class procedure Finalize; static;
+    constructor Create;
+    destructor Destroy; override;
 
     // Load DisconnectEx function pointer via WSAIoctl on the given socket.
     // Called once with the listen socket.
-    class procedure LoadDisconnectEx(ASocket: TSocket); static;
+    procedure LoadDisconnectEx(ASocket: TSocket);
 
     // Attempt to recycle a socket via DisconnectEx + TF_REUSE_SOCKET.
     // Returns True if recycled (socket now in pool); False if closed normally.
-    class function Recycle(ASocket: TSocket): Boolean; static;
+    function Recycle(ASocket: TSocket): Boolean;
 
     // Acquire a recycled socket from the pool.
     // Returns INVALID_SOCKET if pool is empty.
-    class function Acquire: TSocket; static;
+    function Acquire: TSocket;
 
     // Add an already-disconnected socket directly to the pool.
     // Used by async DisconnectEx completion path.
-    class function AddRecycled(ASocket: TSocket): Boolean; static;
+    function AddRecycled(ASocket: TSocket): Boolean;
   end;
 
 implementation
@@ -76,8 +86,9 @@ type
   TDisconnectExFunc = function(ASocket: TSocket; AOverlapped: POverlapped;
     AFlags: DWORD; AReserved: DWORD): BOOL; stdcall;
 
-class procedure TSocketPool.Initialize;
+constructor TSocketPool.Create;
 begin
+  inherited Create;
   {$IFDEF FPC}FLock := syncobjs.TCriticalSection.Create;{$ELSE}FLock := TObject.Create;{$ENDIF}
   SetLength(FPool, CMaxPoolSize);
   FCount := 0;
@@ -85,7 +96,7 @@ begin
   FLoaded := False;
 end;
 
-class procedure TSocketPool.Finalize;
+destructor TSocketPool.Destroy;
 var
   I: Integer;
 begin
@@ -98,9 +109,10 @@ begin
     {$IFDEF FPC}FLock.Leave;{$ELSE}TMonitor.Exit(FLock);{$ENDIF}
   end;
   FreeAndNil(FLock);
+  inherited Destroy;
 end;
 
-class procedure TSocketPool.LoadDisconnectEx(ASocket: TSocket);
+procedure TSocketPool.LoadDisconnectEx(ASocket: TSocket);
 var
   LBytes: DWORD;
   LGuid: TGUID;
@@ -114,7 +126,7 @@ begin
     FLoaded := True;
 end;
 
-class function TSocketPool.Recycle(ASocket: TSocket): Boolean;
+function TSocketPool.Recycle(ASocket: TSocket): Boolean;
 begin
   Result := False;
   if (not FLoaded) or (FDisconnectEx = nil) then Exit;
@@ -142,7 +154,7 @@ begin
   end;
 end;
 
-class function TSocketPool.Acquire: TSocket;
+function TSocketPool.Acquire: TSocket;
 begin
   Result := INVALID_SOCKET;
   {$IFDEF FPC}FLock.Enter;{$ELSE}TMonitor.Enter(FLock);{$ENDIF}
@@ -157,7 +169,7 @@ begin
   end;
 end;
 
-class function TSocketPool.AddRecycled(ASocket: TSocket): Boolean;
+function TSocketPool.AddRecycled(ASocket: TSocket): Boolean;
 begin
   Result := False;
   {$IFDEF FPC}FLock.Enter;{$ELSE}TMonitor.Enter(FLock);{$ENDIF}
@@ -172,12 +184,6 @@ begin
     {$IFDEF FPC}FLock.Leave;{$ELSE}TMonitor.Exit(FLock);{$ENDIF}
   end;
 end;
-
-initialization
-  TSocketPool.Initialize;
-
-finalization
-  TSocketPool.Finalize;
 
 {$ELSE}
 

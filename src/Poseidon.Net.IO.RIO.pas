@@ -42,7 +42,8 @@ uses
   {$ENDIF}
   Poseidon.Net.IO,
   Poseidon.Net.Connection,
-  Poseidon.Net.Pool.Buffer;
+  Poseidon.Net.Pool.Buffer,
+  Poseidon.Net.Pool.Socket;
 
 type
   TRIO_BUFFERID = Pointer;
@@ -117,6 +118,7 @@ type
     FSendPoolLock: TCriticalSection;
     FWorkerIOCPs: TArray<THandle>;
     FWorkerOvls: TArray<POverlapped>;
+    FSocketPool: TSocketPool;  // #225: instance-owned, never shared across backends
     procedure _LoadRIO;
     procedure _Accept;
     procedure _WorkerLoop(ACQIdx: Integer);
@@ -148,9 +150,6 @@ type
   end;
 
 implementation
-
-uses
-  Poseidon.Net.Pool.Socket;
 
 const
   SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER = $C8000024;
@@ -259,6 +258,7 @@ begin
   FSendPoolLock := TCriticalSection.Create;
   FSendPool := nil;
   FSendPoolBufId := nil;
+  FSocketPool := TSocketPool.Create;
   _LoadRIO;
 
   LNumaNode := _GetNumaNode;
@@ -338,6 +338,7 @@ begin
     VirtualFree(FSendPool, 0, MEM_RELEASE);
   FreeAndNil(FRecvPoolLock);
   FreeAndNil(FSendPoolLock);
+  FreeAndNil(FSocketPool);
   inherited Destroy;
 end;
 
@@ -491,7 +492,7 @@ begin
   if _WsaListen(FListenSocket, SOMAXCONN) = SOCKET_ERROR then
     RaiseLastOSError;
 
-  TSocketPool.LoadDisconnectEx(FListenSocket);
+  FSocketPool.LoadDisconnectEx(FListenSocket);
 
   SetLength(FCQs, AWorkerCount);
   SetLength(FCQLocks, AWorkerCount);
@@ -875,7 +876,7 @@ begin
   LSock := LConn.Socket;
   LConn.Socket := INVALID_SOCKET;
   shutdown(LSock, SD_SEND);
-  if not TSocketPool.Recycle(LSock) then
+  if not FSocketPool.Recycle(LSock) then
     closesocket(LSock);
 end;
 
@@ -909,7 +910,7 @@ begin
       FCallbacks.OnNewConn(NativeUInt(LClient),
         string(LRemoteIP) + ':' + IntToStr(ntohs(LAddr.sin_port)));
     except
-      if not TSocketPool.Recycle(LClient) then
+      if not FSocketPool.Recycle(LClient) then
         closesocket(LClient);
     end;
   end;

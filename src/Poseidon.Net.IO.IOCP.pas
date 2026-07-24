@@ -42,6 +42,7 @@ type
     FGetAcceptExSockaddrs: Pointer;
     FAcceptCtxs: array of Pointer;  // PAcceptCtx, allocated in StartListening
     FDisconnectEx: Pointer;
+    FSocketPool: TSocketPool;  // #225: instance-owned, never shared across backends
     procedure _LoadExtensions;
     procedure _PostOneAccept(AIdx: Integer; ARetriesLeft: Integer = 3);
     procedure _WorkerLoop;
@@ -303,6 +304,7 @@ begin
   FAcceptEx := nil;
   FGetAcceptExSockaddrs := nil;
   FDisconnectEx := nil;
+  FSocketPool := TSocketPool.Create;
 end;
 
 destructor TIOCPBackend.Destroy;
@@ -326,6 +328,7 @@ begin
     CloseHandle(FIocp);
     FIocp := 0;
   end;
+  FreeAndNil(FSocketPool);
   inherited Destroy;
 end;
 
@@ -363,7 +366,7 @@ var
   LAcceptSocket: TSocket;
   LBytes: DWORD;
 begin
-  LAcceptSocket := TSocketPool.Acquire;
+  LAcceptSocket := FSocketPool.Acquire;
   if LAcceptSocket = INVALID_SOCKET then
     LAcceptSocket := WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, nil, 0,
       WSA_FLAG_OVERLAPPED);
@@ -449,7 +452,7 @@ begin
   if _WsaListen(FListenSocket, SOMAXCONN) = SOCKET_ERROR then
     RaiseLastOSError;
 
-  TSocketPool.LoadDisconnectEx(FListenSocket);
+  FSocketPool.LoadDisconnectEx(FListenSocket);
   _LoadExtensions;
 
   if _IocpCreate(THandle(FListenSocket), FIocp, 0, 0) = 0 then
@@ -788,7 +791,7 @@ begin
     begin
       // Completed synchronously — FILE_SKIP_COMPLETION_PORT_ON_SUCCESS
       // means no IOCP completion will arrive; handle inline.
-      if not TSocketPool.AddRecycled(LCtx^.Socket) then
+      if not FSocketPool.AddRecycled(LCtx^.Socket) then
         closesocket(LCtx^.Socket);
       Dispose(LCtx);
       Exit;
@@ -917,7 +920,7 @@ begin
           LDisCtx := PDisconnectCtx(LOvl);
           if LDisCtx^.Socket <> INVALID_SOCKET then
           begin
-            if not TSocketPool.AddRecycled(LDisCtx^.Socket) then
+            if not FSocketPool.AddRecycled(LDisCtx^.Socket) then
               closesocket(LDisCtx^.Socket);
           end;
           Dispose(LDisCtx);
