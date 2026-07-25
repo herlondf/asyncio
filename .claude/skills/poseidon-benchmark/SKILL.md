@@ -99,6 +99,93 @@ O valor da skill é traduzir o número/flamegraph num ponto do código:
   o v2 canônico já tem shared-nothing per-core epoll — confirmar que está ativo
   (ver `docs/PROMPT-POSEIDON-V2-OPTIMIZATION.md`, histórico/aspiracional).
 
+## Cenário mais realista — VPS externa (hardware real, opcionalmente rede real)
+
+O harness WSL2 (acima) é o padrão para o dia a dia: rápido, local, sem custo.
+Mas para **testes de benchmark mais elaborados** — validação final de um fix
+sensível a timing/concorrência (ex.: #224), uma decisão benchmark-gated
+importante antes de merge, ou qualquer suspeita de que o kernel customizado
+da WSL2 esteja mascarando ou introduzindo alguma variável — rode também numa
+VPS real: Hostinger KVM (4 vCPU / 15 GiB, Ubuntu 24.04), acesso documentado em
+`D:\IA\Vault\Self-Hosted-IA.md`. Essa VPS já hospeda outros serviços em
+produção (stack "MinhaSuite" + "Self-Hosted-IA") — **nunca são o alvo do
+teste**, apenas vizinhos que não podem ser afetados.
+
+### Regras de isolamento (sempre, sem exceção)
+
+1. **Snapshot antes**: `docker ps` + `docker network ls` — guarde a lista.
+2. **Nunca** `stop`/`rm`/`restart` um container existente, nunca
+   `docker compose down`/`system prune`/`volume rm`.
+3. Rede **dedicada e nova** para o teste (`docker network create <nome>`) —
+   nunca `minhasuite-net` nem `selfhosted-ia_default`.
+4. Nome de container único, `--cpus`/`--memory` sempre definidos (o alvo não
+   pode faminar os outros ~19 containers da máquina).
+5. **Limpeza total ao final**: parar/remover o(s) container(s) de teste,
+   remover a rede dedicada, remover qualquer imagem que teve que ser
+   `pull`ada especificamente para o teste (`docker images` antes/depois —
+   se uma imagem não existia no snapshot, ela sai no final), apagar
+   binário/scripts enviados via `scp`.
+6. **Snapshot depois**: `docker ps` + `docker network ls` devem bater
+   exatamente com o snapshot do passo 1. Se não bater, investigar antes de
+   encerrar a sessão.
+7. Na dúvida se um comando afeta algo existente — não rode, pergunte primeiro.
+
+### Dois modos — escolha conforme o que você quer medir
+
+- **Hardware real, sem rede real** (o que foi feito para validar o fix da
+  #224): o gerador de carga (`wrk`/k6) roda em OUTRO container na MESMA rede
+  Docker dedicada, batendo no alvo pelo nome do container
+  (`http://<nome-do-alvo>:9000/...`). Isso tira a variável "kernel
+  customizado da WSL2 e virtualização aninhada" da equação, mas o tráfego
+  ainda é só loopback/bridge interno — **sem latência de rede real**. Bom
+  para: confirmar que um fix de concorrência não era peculiaridade da WSL2.
+- **Rede real** (para quando "delay de rede, jitter, etc." importa de
+  verdade — ex.: medir p99 sob RTT real, testar timeouts/keep-alive fora de
+  condições ideais): o gerador de carga roda **fora** da VPS — na própria
+  máquina Windows local (`wrk`/k6 via WSL local, ou um container Docker
+  Desktop local) — batendo no IP público da VPS. Isso exige expor a porta
+  do container-alvo no IP público (não só `127.0.0.1`) **temporariamente,
+  só durante o teste**, e fechar a exposição (remover o container ou
+  recriar sem o `-p` público) assim que terminar — nunca deixar uma porta
+  de teste aberta ao público depois.
+
+### Exemplo de sequência (modo hardware real, sem rede real)
+
+```bash
+# 1. Baseline
+ssh -i <chave> root@<ip-vps> "docker ps; docker network ls"
+
+# 2. Enviar o binário já cross-compilado (ver Regra de Ferro nº1 — sincronizar antes)
+scp -i <chave> <bin-linux-local> root@<ip-vps>:/root/<nome>_server
+
+# 3. Rede dedicada + alvo isolado, só loopback
+ssh -i <chave> root@<ip-vps> "
+  docker network create <nome>-net
+  chmod +x /root/<nome>_server
+  docker run -d --name <nome> --network <nome>-net --cpus=2 --memory=512m \
+    -p 127.0.0.1:<porta>:9000 -v /root/<nome>_server:/app/server:ro \
+    ubuntu:24.04 /app/server
+"
+
+# 4. Carga — gerador em container na MESMA rede dedicada, batendo no nome do container
+ssh -i <chave> root@<ip-vps> "
+  docker run --rm --network <nome>-net williamyeh/wrk -t4 -c100 -d20s http://<nome>:9000/ping
+"
+
+# 5. Limpeza total + verificação
+ssh -i <chave> root@<ip-vps> "
+  docker stop <nome>; docker rm <nome>; docker network rm <nome>-net
+  rm -f /root/<nome>_server
+  docker ps; docker network ls   # deve bater com o baseline do passo 1
+"
+```
+
+Para o modo "rede real", troque o passo 3 para publicar em `0.0.0.0:<porta>`
+(não `127.0.0.1`) e rode o `wrk`/k6 do passo 4 na máquina Windows local
+contra `http://<ip-publico-vps>:<porta>/...` — e garanta que o passo 5
+(remover o container) rode **logo em seguida**, sem deixar a porta pública
+exposta além da duração do teste.
+
 ## Profiling (flamegraph) — não é pré-fiado no harness
 
 O Benchmark entrega req/s, latência e CPU/mem (docker stats), mas NÃO um
@@ -131,5 +218,13 @@ o que destrava decidi-los.
 - Não medir sem sincronizar `vendor/poseidon-v2` (Regra de Ferro nº1).
 - Não medir saturação com VU fixo (use arrival-rate).
 - Não reimplementar as 11 skills do Benchmark aqui — delegue.
-- Não containerizar o gerador de carga.
+- Não containerizar o gerador de carga (harness WSL2 local).
 - Não afirmar regressão/ganho de perf sem o número do Grafana/wrk.
+- Na VPS: não tocar em container/rede/volume que já existia — sempre rede
+  dedicada nova, sempre limpeza total, sempre snapshot antes/depois.
+- Na VPS: não chamar de "teste com rede real" um teste cujo gerador de
+  carga roda em outro container na mesma máquina — isso é só hardware
+  real, ainda sem latência de rede.
+- Na VPS: não deixar uma porta pública exposta além da duração do teste de
+  "rede real" — remover o container (ou recriar sem `-p 0.0.0.0:...`) assim
+  que a rodada termina.
