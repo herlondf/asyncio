@@ -95,6 +95,8 @@ type
     function  GetMaxConnectionsPerIP: Integer;
     procedure SetMaxConnectionsPerIP(AValue: Integer);
     function  GetSSLEnabled: Boolean;
+    function  GetWorkerActiveCount: Integer;
+    function  GetWorkerIdleCount: Integer;
     function  GetH2Enabled: Boolean;
     procedure SetH2Enabled(AValue: Boolean);
     function  GetMinTLSVersion: Integer;
@@ -174,6 +176,10 @@ type
     // 0 = auto (same as IO workers: max(4, ProcessorCount*2) capped at 16).
     // Use MinWorkerCount to pre-warm the pool without setting a high max.
     property MinWorkerCount: Integer read FMinWorkerCount write FMinWorkerCount;
+    // Live elastic-pool stats (diagnostic; #227). 0 before Listen() is called
+    // (pool not created yet). Not persisted, not part of any wire protocol.
+    property WorkerActiveCount: Integer read GetWorkerActiveCount;
+    property WorkerIdleCount: Integer read GetWorkerIdleCount;
     // Optional log callback. When assigned, all internal errors are routed here.
     // When nil (default), errors are written to ErrOutput.
     property OnLog: TOnPoseidonLog read FOnLog write FOnLog;
@@ -1168,6 +1174,22 @@ end;
 
 function TPoseidonNativeServer.GetSSLEnabled: Boolean;
 begin Result := FSSLManager.SSLEnabled; end;
+
+function TPoseidonNativeServer.GetWorkerActiveCount: Integer;
+begin
+  if Assigned(FRequestPool) then
+    Result := FRequestPool.ActiveWorkers
+  else
+    Result := 0;
+end;
+
+function TPoseidonNativeServer.GetWorkerIdleCount: Integer;
+begin
+  if Assigned(FRequestPool) then
+    Result := FRequestPool.IdleWorkers
+  else
+    Result := 0;
+end;
 
 function TPoseidonNativeServer.GetH2Enabled: Boolean;
 begin Result := FH2Manager.H2Enabled; end;

@@ -66,6 +66,8 @@ type
     procedure SetWorkerCount(AValue: Integer);
     function GetMinWorkerCount: Integer;
     procedure SetMinWorkerCount(AValue: Integer);
+    function GetWorkerActiveCount: Integer;
+    function GetWorkerIdleCount: Integer;
     function GetIdleTimeoutMs: Integer;
     procedure SetIdleTimeoutMs(AValue: Integer);
     function GetMaxRequestSize: Integer;
@@ -139,6 +141,8 @@ type
     property MaxConnectionsPerIP: Integer read GetMaxConnectionsPerIP write SetMaxConnectionsPerIP;
     property WorkerCount: Integer read GetWorkerCount write SetWorkerCount;
     property MinWorkerCount: Integer read GetMinWorkerCount write SetMinWorkerCount;
+    property WorkerActiveCount: Integer read GetWorkerActiveCount;
+    property WorkerIdleCount: Integer read GetWorkerIdleCount;
     property IdleTimeoutMs: Integer read GetIdleTimeoutMs write SetIdleTimeoutMs;
     property MaxRequestSize: Integer read GetMaxRequestSize write SetMaxRequestSize;
     property MaxHeaderSize: Integer read GetMaxHeaderSize write SetMaxHeaderSize;
@@ -625,6 +629,12 @@ begin Result := FServer.MinWorkerCount; end;
 
 procedure TPoseidonServer.SetMinWorkerCount(AValue: Integer);
 begin FServer.MinWorkerCount := AValue; end;
+
+function TPoseidonServer.GetWorkerActiveCount: Integer;
+begin Result := FServer.WorkerActiveCount; end;
+
+function TPoseidonServer.GetWorkerIdleCount: Integer;
+begin Result := FServer.WorkerIdleCount; end;
 
 function TPoseidonServer.GetIdleTimeoutMs: Integer;
 begin Result := FServer.IdleTimeoutMs; end;
