@@ -89,6 +89,12 @@ type
     PendingSend: TBytes;
     PendingSendActual: Integer;
     SentBytes: Integer;
+    // #229: counts consecutive EAGAIN-triggered io-wq async resubmits for the
+    // CURRENT send. Reset whenever a new PostSend begins. Combined with
+    // CSO_SNDTIMEO (bounds each blocking attempt), this bounds a permanently
+    // -stalled peer to a finite number of retries instead of retrying forever
+    // one connection at a time — see Poseidon.Net.IO.IOUring.pas CMaxSendEAGAINRetries.
+    SendEAGAINRetries: Integer;
     OwnerEpollFd: Integer;
     // io_uring multi-ring: index of the ring (completion thread + SQ) this
     // connection is pinned to. Set in TIOUringBackend.RegisterConn from the

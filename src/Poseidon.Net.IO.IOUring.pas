@@ -240,6 +240,27 @@ const
   SO_REUSEPORT = 15;
   CTCP_FASTOPEN = 23;
   CTCP_DEFER_ACCEPT = 9;
+  CSO_SNDTIMEO = 21;
+
+  // #229: bounds a stuck send. IOSQE_ASYNC fallback (#199/#207 EAGAIN retry)
+  // hands the send to a kernel io-wq worker that performs an effectively
+  // BLOCKING send() — if the peer never drains (a stalled/adversarial
+  // connection), that worker blocks forever and is never reclaimed, since
+  // this backend has no IORING_OP_ASYNC_CANCEL on connection teardown. Each
+  // such connection leaks one kernel thread permanently; under sustained
+  // large-message backpressure (Autobahn 12.*/13.*) this was observed to grow
+  // unbounded (161->372 OS threads in 5 minutes, live-reproduced) until the
+  // process grinds to a halt. SO_SNDTIMEO caps the blocking send at this
+  // many seconds, so a stalled peer surfaces as a bounded error (existing
+  // OnConnError path) instead of an unrecoverable leaked thread.
+  CSendTimeoutSec = 20;
+
+  // #229: caps consecutive EAGAIN->io-wq-async resubmits for one send before
+  // giving up (OnConnError) instead of retrying forever. Combined with
+  // CSendTimeoutSec, worst case a stalled peer costs at most
+  // CMaxSendEAGAINRetries * CSendTimeoutSec seconds of one blocked io-wq
+  // worker, then the connection is torn down.
+  CMaxSendEAGAINRetries = 3;
 
   CRecvBufSize = 32768;
   CRingEntries = 512;
@@ -352,6 +373,12 @@ type
     resv:     UInt16;
     resv2:    array[0..2] of UInt32;
     ops:      array[0..63] of TIOUringProbeOp;
+  end;
+
+  // Linux struct timeval for SO_SNDTIMEO (both fields are 8 bytes on x86_64).
+  TLinuxTimeVal = packed record
+    tv_sec:  Int64;
+    tv_usec: Int64;
   end;
 
   // Pre-allocated recv context: stable buffer for in-flight IORING_OP_RECV.
@@ -1032,6 +1059,7 @@ var
   LAddrLen: Cardinal;
   LIP: AnsiString;
   LOne: Integer;
+  LSndTimeo: TLinuxTimeVal;
 begin
   GCurrentRingIdx := FIdx;
   while True do
@@ -1049,6 +1077,9 @@ begin
     LOne := 1;
     _LinuxSetsockopt(LFd, IPPROTO_TCP, TCP_NODELAY, @LOne, SizeOf(LOne));
     _LinuxSetsockopt(LFd, SOL_SOCKET, SO_KEEPALIVE, @LOne, SizeOf(LOne));
+    LSndTimeo.tv_sec := CSendTimeoutSec;
+    LSndTimeo.tv_usec := 0;
+    _LinuxSetsockopt(LFd, SOL_SOCKET, CSO_SNDTIMEO, @LSndTimeo, SizeOf(LSndTimeo));
 
     LIP := AnsiString(inet_ntoa(LAddr.sin_addr));
     try
@@ -1513,6 +1544,7 @@ begin
     else
     begin
       AConn.SendInFlight := True;
+      AConn.SendEAGAINRetries := 0;
       Result := True;
     end;
   finally
@@ -1604,6 +1636,7 @@ var
   LAddr: sockaddr_in;
   LAddrLen: Cardinal;
   LIP: AnsiString;
+  LSndTimeo: TLinuxTimeVal;
 begin
   if AUserData = CUdShutdown then
   begin
@@ -1622,6 +1655,9 @@ begin
       LOne := 1;
       _LinuxSetsockopt(ARes, IPPROTO_TCP, TCP_NODELAY, @LOne, SizeOf(LOne));
       _LinuxSetsockopt(ARes, SOL_SOCKET, SO_KEEPALIVE, @LOne, SizeOf(LOne));
+      LSndTimeo.tv_sec := CSendTimeoutSec;
+      LSndTimeo.tv_usec := 0;
+      _LinuxSetsockopt(ARes, SOL_SOCKET, CSO_SNDTIMEO, @LSndTimeo, SizeOf(LSndTimeo));
       FillChar(LAddr, SizeOf(LAddr), 0);
       LAddrLen := SizeOf(LAddr);
       getpeername(ARes, sockaddr(LAddr), LAddrLen);
@@ -1770,8 +1806,24 @@ begin
     // #199: a non-blocking SEND on a full socket buffer returns -EAGAIN. That is
     // NOT fatal — re-submit the same remaining bytes via io-wq (IOSQE_ASYNC) so
     // the kernel completes the send as the peer drains.
+    // #229: with CSO_SNDTIMEO set on the socket, the io-wq blocking send also
+    // surfaces as -EAGAIN once it times out (CSendTimeoutSec) rather than
+    // blocking forever — a genuinely-stalled peer (never drains) would
+    // otherwise retry this branch indefinitely, one permanently-parked io-wq
+    // kernel thread per stuck connection, unboundedly across connections
+    // (live-reproduced: 161->372 OS threads in 5 minutes under sustained
+    // Autobahn 12.*/13.* large-message backpressure). Cap consecutive retries
+    // for this send; a peer that still hasn't drained after
+    // CMaxSendEAGAINRetries timeouts is treated as unrecoverable.
     if ARes = -CEAGAIN then
     begin
+      Inc(LConn.SendEAGAINRetries);
+      if LConn.SendEAGAINRetries > CMaxSendEAGAINRetries then
+      begin
+        FCallbacks.OnConnError(LConn);
+        LConn.Release;
+        Exit;
+      end;
       _ResubmitSend(LConn, True);
       LConn.Release;                       // drop this op's ref; resubmit took its own
       Exit;
