@@ -98,7 +98,6 @@ const
   SOCK_NONBLOCK = $800;
   SOCK_CLOEXEC = $80000;
 
-  TCP_CORK = 3;
   CTCP_FASTOPEN = 23;
   CTCP_DEFER_ACCEPT = 9;
   // SO_ZEROCOPY / MSG_ZEROCOPY removed — requires error queue polling
@@ -369,7 +368,6 @@ procedure TEpollBackend.PostSend(AConn: Pointer; const AData: TBytes;
 var
   LConn: TNativeConn absolute AConn;
   LSendLen: Integer;
-  LCork: Integer;
 begin
   LSendLen := AActualLen;
   if LSendLen = 0 then LSendLen := Length(AData);
@@ -379,9 +377,6 @@ begin
     FCallbacks.OnSendComplete(AConn);
     Exit;
   end;
-
-  LCork := 1;
-  _LinuxSetsockopt(LConn.Socket, IPPROTO_TCP, TCP_CORK, @LCork, SizeOf(LCork));
 
   LConn.PendingSend := AData;
   LConn.PendingSendActual := AActualLen;
@@ -404,7 +399,6 @@ var
   LConcat: TBytes;
   LTmpH: TBytes;
   LTmpB: TBytes;
-  LCork: Integer;
 begin
   LHLen := AHdrLen;
   if LHLen = 0 then LHLen := Length(AHeaders);
@@ -432,14 +426,9 @@ begin
     Inc(LCount);
   end;
 
-  LCork := 1;
-  _LinuxSetsockopt(LConn.Socket, IPPROTO_TCP, TCP_CORK, @LCork, SizeOf(LCork));
-
   LN := _LinuxWritev(LConn.Socket, @LVec[0], LCount);
   if LN = LTotal then
   begin
-    LCork := 0;
-    _LinuxSetsockopt(LConn.Socket, IPPROTO_TCP, TCP_CORK, @LCork, SizeOf(LCork));
     LTmpH := AHeaders; TBufferPool.Release(LTmpH);
     LTmpB := ABody;    TBufferPool.Release(LTmpB);
     FCallbacks.OnSendComplete(AConn);
@@ -448,8 +437,6 @@ begin
 
   if (LN < 0) and (GetLastError <> EAGAIN) then
   begin
-    LCork := 0;
-    _LinuxSetsockopt(LConn.Socket, IPPROTO_TCP, TCP_CORK, @LCork, SizeOf(LCork));
     LTmpH := AHeaders; TBufferPool.Release(LTmpH);
     LTmpB := ABody;    TBufferPool.Release(LTmpB);
     FCallbacks.OnConnError(AConn);
@@ -501,7 +488,6 @@ var
   LEv: epoll_event;
   LTotalSend: Integer;
   LSendFlags: Integer;
-  LCork: Integer;
 begin
   LTotalSend := LConn.PendingSendActual;
   if LTotalSend = 0 then LTotalSend := Length(LConn.PendingSend);
@@ -528,9 +514,6 @@ begin
       Exit;
     end;
   end;
-
-  LCork := 0;
-  _LinuxSetsockopt(LConn.Socket, IPPROTO_TCP, TCP_CORK, @LCork, SizeOf(LCork));
 
   TBufferPool.Release(LConn.PendingSend);
   LConn.PendingSendActual := 0;
