@@ -826,6 +826,7 @@ var
   LRes: Integer;
   LKA: TKeepAliveVals;
   LBytesRet: DWORD;
+  LSawShutdown: Boolean;
 begin
   try
   while True do
@@ -834,13 +835,33 @@ begin
       INFINITE, False) then
       Break;
 
+    // #228: SignalWorkers posts exactly one nil "poison pill" per worker
+    // thread in a tight loop. GetQueuedCompletionStatusEx retrieves up to
+    // CIocpBatchSize (64) entries in ONE call, so a single thread that wakes
+    // first can dequeue MORE THAN ONE pill in the same batch -- silently
+    // starving another worker thread of its shutdown signal, which then
+    // blocks forever in the INFINITE wait above (~25% hang rate observed in
+    // Stop_NoInFlight_ReturnsQuickly and the wider suite, #228). Re-post any
+    // pill beyond the first found in this batch so the total pill count in
+    // circulation always matches the number of threads still running,
+    // regardless of how the OS happens to batch them. Process the REST of
+    // the batch before honoring shutdown too -- exiting on the first nil
+    // used to silently drop any real completion queued after it in the
+    // same batch.
+    LSawShutdown := False;
     for I := 0 to Integer(LCount) - 1 do
     begin
       LOvl := LEntries[I].lpOverlapped;
       LBytes := LEntries[I].dwNumberOfBytesTransferred;
 
       if LOvl = nil then
-        Exit;
+      begin
+        if LSawShutdown then
+          _IocpPost(FIocp, 0, 0, nil)
+        else
+          LSawShutdown := True;
+        Continue;
+      end;
 
       try
         LHdr := PIocpHdr(LOvl);
@@ -1013,6 +1034,8 @@ begin
           Writeln(ErrOutput, '[iocp] WORKER_EX [', E.ClassName, ']: ', E.Message);
       end;
     end;
+
+    if LSawShutdown then Exit;
   end;
   finally
     // L4: drenar TLC do worker no fim do loop — evita vazamento em graceful reload
