@@ -309,6 +309,100 @@ const
   CDefaultDrainTimeoutMs = 30000;
   CShutdownTimeoutMs = 1000;
 
+{$IFNDEF MSWINDOWS}
+// #231 follow-up: TThread.ProcessorCount reports the host's raw logical core
+// count -- it does NOT reflect a Docker/Kubernetes CPU quota (`--cpus`,
+// container CPU limits), only a cpuset restriction (`--cpuset-cpus`), which
+// is far less commonly set in practice. On a host with many more visible
+// cores than the container's actual CPU budget (e.g. this project's own
+// WSL2 dev harness: 16 visible cores vs a 2-vCPU quota), sizing IO worker
+// threads/epoll rings off ProcessorCount alone over-provisions them badly
+// (measured: 34 threads instead of 10 for that 2-vCPU case), and the
+// resulting thread oversubscription shows up as elevated p99 tail latency
+// (measured: 77ms vs 18ms, ~4.2x) with a smaller effect on average
+// throughput (~15% lower) -- exactly the "average is OK, tail is bad"
+// signature of too many threads sharing too little real CPU time.
+// Detects an effective CFS quota (cgroup v2 cpu.max, falling back to
+// cgroup v1 cpu.cfs_quota_us/cpu.cfs_period_us) and returns it in whole
+// cores, or 0 if unlimited/undetectable so the caller falls back to
+// ProcessorCount unchanged -- matches today's behavior exactly on bare
+// metal or an unrestricted container.
+function _CgroupQuotaCores: Integer;
+var
+  LFile: TextFile;
+  LLine: string;
+  LParts: TArray<string>;
+  LQuota, LPeriod: Int64;
+
+  function ReadFirstLine(const APath: string; out ALine: string): Boolean;
+  begin
+    Result := False;
+    ALine := '';
+    if not FileExists(APath) then Exit;
+    AssignFile(LFile, APath);
+    try
+      Reset(LFile);
+      try
+        if not Eof(LFile) then
+        begin
+          ReadLn(LFile, ALine);
+          Result := True;
+        end;
+      finally
+        CloseFile(LFile);
+      end;
+    except
+      Result := False;
+    end;
+  end;
+
+begin
+  Result := 0;
+  // cgroup v2: single file "<quota> <period>" or "max <period>".
+  if ReadFirstLine('/sys/fs/cgroup/cpu.max', LLine) then
+  begin
+    LParts := LLine.Split([' ']);
+    if (Length(LParts) = 2) and (LParts[0] <> 'max') then
+    begin
+      LQuota := StrToInt64Def(LParts[0], 0);
+      LPeriod := StrToInt64Def(LParts[1], 0);
+      if (LQuota > 0) and (LPeriod > 0) then
+        Result := Max(1, LQuota div LPeriod);
+    end;
+    Exit;
+  end;
+  // cgroup v1: two separate files, quota = -1 means unlimited.
+  if ReadFirstLine('/sys/fs/cgroup/cpu/cpu.cfs_quota_us', LLine) then
+  begin
+    LQuota := StrToInt64Def(Trim(LLine), -1);
+    if (LQuota > 0) and
+       ReadFirstLine('/sys/fs/cgroup/cpu/cpu.cfs_period_us', LLine) then
+    begin
+      LPeriod := StrToInt64Def(Trim(LLine), 0);
+      if LPeriod > 0 then
+        Result := Max(1, LQuota div LPeriod);
+    end;
+  end;
+end;
+
+// Effective processor count for sizing IO worker threads: the host's raw
+// core count, capped by a detected CFS quota (see _CgroupQuotaCores).
+// Deliberately does NOT also intersect sched_getaffinity here -- the
+// io_uring backend already does that correction itself
+// (TIOUringBackend._AffinityCPUCount), and the epoll backend uses
+// AWorkerCount as-is, so fixing it centrally here is what actually reaches
+// epoll too.
+function _EffectiveProcessorCount: Integer;
+var
+  LQuotaCores: Integer;
+begin
+  Result := TThread.ProcessorCount;
+  LQuotaCores := _CgroupQuotaCores;
+  if (LQuotaCores > 0) and (LQuotaCores < Result) then
+    Result := LQuotaCores;
+end;
+{$ENDIF}
+
 // ===========================================================================
 // Shared: SSL helpers — encrypt-and-send + handshake write-BIO flush
 // ===========================================================================
@@ -1440,11 +1534,14 @@ begin
   // IO tier: small fixed pool — handles kernel I/O events only (recv/send).
   // W14: ProcessorCount×2 wins ~50% at c=100; cap at 16 to avoid stack waste.
   // IO workers no longer run blocking handlers, so the cap stays low safely.
-  LIOWorkers := Min(Max(CWorkerCountMin, TThread.ProcessorCount * 2),
+  // #231 follow-up: use the CFS-quota-aware count on Linux, not raw
+  // ProcessorCount -- see _EffectiveProcessorCount for why (severe IO-worker
+  // oversubscription under a Docker/Kubernetes CPU limit otherwise).
+  LIOWorkers := Min(Max(CWorkerCountMin, {$IFNDEF MSWINDOWS}_EffectiveProcessorCount{$ELSE}TThread.ProcessorCount{$ENDIF} * 2),
                     CWorkerCountMax);
   // Per-core accept — one listen socket + accept thread per CPU core
   if FPerCoreAccept then
-    LAcceptN := TThread.ProcessorCount
+    LAcceptN := {$IFNDEF MSWINDOWS}_EffectiveProcessorCount{$ELSE}TThread.ProcessorCount{$ENDIF}
   else
     LAcceptN := 1;
   // Inline dispatch (SyncDispatch) lets the io_uring backend batch SQE submits.
