@@ -609,13 +609,24 @@ begin
 
       LConn := TNativeConn(LEvents[I].data.ptr);
       try
-        if (LEvents[I].events and (EPOLLERR or EPOLLHUP or EPOLLRDHUP)) <> 0 then
+        if (LEvents[I].events and (EPOLLERR or EPOLLHUP)) <> 0 then
+          FCallbacks.OnConnError(LConn)
+        else if ((LEvents[I].events and EPOLLRDHUP) <> 0)
+             and (LConn.PendingSend = nil) then
+          // Peer half-closed its write side (will send us no more data) and we
+          // have nothing left to flush -- safe to treat as connection-done.
+          // If a send IS still pending, RDHUP alone must NOT abort it: RDHUP
+          // says nothing about whether the peer stopped READING, and this fd
+          // can be armed for EPOLLOUT+EPOLLRDHUP together (see the EAGAIN
+          // re-arm below) -- killing the connection here would cut off a
+          // response that was still being sent, surfacing as a truncated
+          // read on the client.
           FCallbacks.OnConnError(LConn)
         else
         begin
           if (LEvents[I].events and EPOLLIN) <> 0 then
             _DoRecv(LConn);
-          if (LEvents[I].events and EPOLLOUT) <> 0 then
+          if ((LEvents[I].events and EPOLLOUT) <> 0) or (LConn.PendingSend <> nil) then
             _FlushSend(LConn);
         end;
       except
