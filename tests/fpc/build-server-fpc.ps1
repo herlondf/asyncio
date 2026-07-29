@@ -1,12 +1,19 @@
 # Build + run the FULL Poseidon server closure under Free Pascal / Win64 (#5).
 #
-# Two gates:
-#   server_smoke — `uses Poseidon` forces the whole server graph (facade,
+# Three gates:
+#   server_smoke     — `uses Poseidon` forces the whole server graph (facade,
 #     HttpServer, IOCP/RIO, Connection, SSL, HTTP2, WebSocket, pools) to build
 #     and link, and proves init/finalization runs clean.
-#   server_run   — boots a real TPoseidonServer (IOCP backend, SyncDispatch) in
-#     a thread and issues real HTTP GETs, proving the native server actually
+#   server_run       — boots a real TPoseidonServer (IOCP backend, SyncDispatch)
+#     in a thread and issues real HTTP GETs, proving the native server actually
 #     SERVES when compiled by FPC.
+#   server_async_run — forces SyncDispatch := False (the elastic worker pool,
+#     not the inline default) and proves dispatch through it. Until #219
+#     item 1's fix, this hit a reproducible EAccessViolation on the very
+#     first request: Listen() created FRequestPool AFTER starting to accept
+#     connections, so an IO thread could race in and call
+#     FRequestPool.Post on a still-nil pool. Fixed by creating the pool
+#     before StartListening.
 #
 # Requires FPC 3.3.1 (trunk). Override the compiler dir with -FpcBin.
 
@@ -56,10 +63,6 @@ function Build-And-Run([string]$prog) {
 
 Build-And-Run 'server_smoke'
 Build-And-Run 'server_run'
-# server_async_run intentionally NOT part of this gate: under Windows/IOCP it
-# hits a reproducible (3/3) EAccessViolation in _ProcessRecv on the very
-# first async-dispatched request (self-heals after) -- issue #219 item 1,
-# still open on this platform. It IS wired into build-linux-fpc.sh, where it
-# passes cleanly (validated under real concurrent load, io_uring backend).
+Build-And-Run 'server_async_run'
 
-Write-Host 'FPC SERVER GATE: PASSED (compile+link+init AND runtime serve)'
+Write-Host 'FPC SERVER GATE: PASSED (compile+link+init, runtime serve, AND async worker-pool dispatch)'

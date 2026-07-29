@@ -1552,19 +1552,25 @@ begin
     LAcceptN := {$IFNDEF MSWINDOWS}_EffectiveProcessorCount{$ELSE}TThread.ProcessorCount{$ENDIF}
   else
     LAcceptN := 1;
-  // Inline dispatch (SyncDispatch) lets the io_uring backend batch SQE submits.
-  FIOBackend.SetInlineDispatch(FSyncDispatch);
-  FIOBackend.StartListening(AHost, APort, LIOWorkers, FTCPFastOpen,
-    TServerIOAdapter.Create(Self), LAcceptN);
-
   // Request tier: elastic pool — runs blocking handlers (DB, ACBr, etc.).
   // Starts with LMinReq threads (fast debugger startup), grows to LMaxReq.
+  // #219: MUST be created before StartListening below — once accept/IO
+  // threads are running, an IO worker can race in with the very first
+  // recv and call _DispatchAccumBuf -> FRequestPool.Post before this
+  // assignment lands, dereferencing a still-nil FRequestPool (reproduced
+  // deterministically on Windows/IOCP+FPC, where thread start-up is fast
+  // enough to win the race on request #1).
   LMinReq := FMinWorkerCount;
   if LMinReq <= 0 then LMinReq := LIOWorkers;   // default: same as IO workers
   LMaxReq := FWorkerCount;
   if LMaxReq <= 0 then LMaxReq := CDefaultMaxWorkers;  // default: 200
   FRequestPool := TElasticWorkerPool.Create(LMinReq, LMaxReq,
                     CWorkerIdleTimeoutMs);
+
+  // Inline dispatch (SyncDispatch) lets the io_uring backend batch SQE submits.
+  FIOBackend.SetInlineDispatch(FSyncDispatch);
+  FIOBackend.StartListening(AHost, APort, LIOWorkers, FTCPFastOpen,
+    TServerIOAdapter.Create(Self), LAcceptN);
 
   // AOnListen fires here — server is functional (workers + accept running).
   // Sweep is intentionally started after: if AOnListen blocks (e.g. Readln),
