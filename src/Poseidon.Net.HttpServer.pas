@@ -884,6 +884,14 @@ procedure TServerIOAdapter.OnSendComplete(AConn: Pointer);
 var
   LConn: TNativeConn absolute AConn;
 begin
+  // #230: _CloseConn (e.g. FailProtocol on a WS protocol violation) sets
+  // Closed synchronously but leaves AccumLen untouched (the parse loop exits
+  // early on error, before the tail-compaction). Without this guard, this
+  // callback's pipelining fast path below would re-run _ProcessRecv on that
+  // same stale/malformed buffer once the close frame's own send completes,
+  // re-triggering the same protocol violation over and over.
+  if TInterlocked.Add(LConn.Closed, 0) <> 0 then Exit;
+
   // During TLS handshake: keep alive regardless of KeepAlive flag —
   // we need to re-arm recv for the next handshake message.
   if (LConn.SSLHandle <> nil) and not LConn.SSLHandshook then
