@@ -80,5 +80,6 @@ run_signal_gate() {
 echo "FPC: $("$PPC" -iV)  (target x86_64-linux)"
 build_run server_smoke
 build_run server_run
+build_run server_async_run
 run_signal_gate
-echo "FPC LINUX SERVER GATE: PASSED (compile+link+init, runtime serve, AND real SIGTERM delivery)"
+echo "FPC LINUX SERVER GATE: PASSED (compile+link+init, runtime serve, async worker-pool dispatch, AND real SIGTERM delivery)"

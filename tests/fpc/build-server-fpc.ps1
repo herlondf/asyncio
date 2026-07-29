@@ -56,5 +56,10 @@ function Build-And-Run([string]$prog) {
 
 Build-And-Run 'server_smoke'
 Build-And-Run 'server_run'
+# server_async_run intentionally NOT part of this gate: under Windows/IOCP it
+# hits a reproducible (3/3) EAccessViolation in _ProcessRecv on the very
+# first async-dispatched request (self-heals after) -- issue #219 item 1,
+# still open on this platform. It IS wired into build-linux-fpc.sh, where it
+# passes cleanly (validated under real concurrent load, io_uring backend).
 
 Write-Host 'FPC SERVER GATE: PASSED (compile+link+init AND runtime serve)'
