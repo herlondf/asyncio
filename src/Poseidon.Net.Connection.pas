@@ -111,6 +111,16 @@ type
     SendInFlight: Boolean;
     SendBacklog: TBytes;
     SendBacklogLen: Integer;
+    // #230: io_uring recv serialization. PostRecv could be invoked again
+    // (post-upgrade re-arm racing a StepWSBranch re-arm, or an EAGAIN retry
+    // overlapping a normal re-arm) while a previous IORING_OP_RECV for this
+    // same connection was still outstanding. Two in-flight recvs on the same
+    // socket can complete out of submission order, and _ProcessRecvPlain
+    // appends strictly in COMPLETION order -- silently reordering bytes
+    // relative to the wire and desyncing the WebSocket frame parser under
+    // sustained small-fragment load. Enforce ONE recv in flight per
+    // connection, guarded by Lock like SendInFlight above.
+    RecvInFlight: Boolean;
 {$ENDIF}
     // R-1: ASocket is NativeUInt so callers need no {$IFDEF} for socket type.
     // Internally cast to TSocket (Windows) or Integer (Linux).

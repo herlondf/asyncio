@@ -1343,7 +1343,20 @@ var
   LCtx: PRecvCtx;
   LConn: TNativeConn absolute AConn;
   LRing: TUringRing;
+  LAlreadyInFlight: Boolean;
 begin
+  // #230: enforce ONE IORING_OP_RECV in flight per connection at a time —
+  // see TNativeConn.RecvInFlight. If one is already outstanding, do nothing;
+  // its own completion (OnRecv -> ... -> PostRecv) re-arms as needed.
+  LConn.Lock.Enter;
+  try
+    LAlreadyInFlight := LConn.RecvInFlight;
+    if not LAlreadyInFlight then
+      LConn.RecvInFlight := True;
+  finally
+    LConn.Lock.Leave;
+  end;
+  if LAlreadyInFlight then Exit;
   LRing := _RingOf(LConn);
   LCtx := LRing._RecvPoolAcquire;
   LCtx^.Conn := LConn;
@@ -1862,6 +1875,15 @@ begin
     LCtx := PRecvCtx(Pointer(AUserData));
     LRecvConn := LCtx^.Conn;
     try
+      // #230: this recv is done — clear before dispatching, since OnRecv's
+      // call chain (StepWSBranch) may re-arm the next one and must see
+      // RecvInFlight=False to do so.
+      LRecvConn.Lock.Enter;
+      try
+        LRecvConn.RecvInFlight := False;
+      finally
+        LRecvConn.Lock.Leave;
+      end;
       if ARes > 0 then
         FCallbacks.OnRecv(LRecvConn, @LCtx^.Buf[0], Cardinal(ARes))
       else if ARes = 0 then
