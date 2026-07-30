@@ -4,12 +4,9 @@ Referência completa da superfície de API **pública** exposta através de `use
 (a unit de fachada) mais as units de middleware sob `middlewares/`. As assinaturas são
 copiadas literalmente das seções `interface` do código-fonte.
 
-> Esta página é a referência navegável, mantida à mão. Para uma referência HTML
-> navegável gerada diretamente dos doc-comments do código-fonte, execute
-> [`docs/api/gen-api.ps1`](./api/gen-api.ps1) (PasDoc).
+> Esta página é a referência navegável, mantida à mão.
 >
 > Novo no Poseidon? Comece pelo [playbook da API nativa](./playbook/08-native-api/README.md).
-> Migrando da v1? Veja o [guia de migração v1 → v2](./MIGRATION_v1_to_v2.md).
 
 ---
 

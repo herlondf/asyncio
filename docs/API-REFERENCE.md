@@ -4,12 +4,9 @@ Complete reference for the **public** API surface exposed through `uses Poseidon
 (the facade unit) plus the middleware units under `middlewares/`. Signatures are
 copied verbatim from the source `interface` sections.
 
-> This page is the hand-maintained, navigable reference. For a browsable HTML
-> reference generated directly from the source doc-comments, run
-> [`docs/api/gen-api.ps1`](./api/gen-api.ps1) (PasDoc).
+> This page is the hand-maintained, navigable reference.
 >
 > New to Poseidon? Start with the [Native API playbook](./playbook/08-native-api/README.md).
-> Upgrading from v1? See the [v1 → v2 migration guide](./MIGRATION_v1_to_v2.md).
 
 ---
 
