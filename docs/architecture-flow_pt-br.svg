@@ -1,0 +1,197 @@
+<svg viewBox="0 0 900 480" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="afTitle afDesc">
+  <title id="afTitle">Poseidon vs. Horse — comparativo de fluxo de requisicoes</title>
+  <desc id="afDesc">A arquitetura shared-nothing per-core do Poseidon atende requisicoes em pistas paralelas independentes, sem fila. O loop unico de epoll do Horse serializa cada conexao numa unica pista, fazendo as requisicoes se acumularem e a maioria falhar sob carga.</desc>
+
+  <style>
+    :root {
+      --panel-bg: #f6f8fa;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --muted: #57606a;
+      --track: #d0d7de;
+      --poseidon: #0969da;
+      --good-badge-bg: #dafbe1;
+      --good-badge-text: #116329;
+      --bad-badge-bg: #ffebe9;
+      --bad-badge-text: #82071e;
+      --queue-zone: #cf222e;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --panel-bg: #161b22;
+        --border: #30363d;
+        --text: #e6edf3;
+        --muted: #8b949e;
+        --track: #30363d;
+        --poseidon: #4493f8;
+        --good-badge-bg: #113319;
+        --good-badge-text: #56d364;
+        --bad-badge-bg: #3c0d12;
+        --bad-badge-text: #ff7b72;
+        --queue-zone: #f85149;
+      }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .panel-bg { fill: var(--panel-bg); stroke: var(--border); stroke-width: 1; }
+    .title { fill: var(--text); font-size: 20px; font-weight: 700; }
+    .subtitle { fill: var(--muted); font-size: 13px; }
+    .core-label { fill: var(--muted); font-size: 13px; font-weight: 600; text-anchor: end; }
+    .track { stroke: var(--track); stroke-width: 10; stroke-linecap: round; }
+    .packet-poseidon { fill: var(--poseidon); }
+    .badge-good-bg { fill: var(--good-badge-bg); }
+    .badge-good-text { fill: var(--good-badge-text); font-size: 13px; font-weight: 700; text-anchor: middle; }
+    .badge-bad-bg { fill: var(--bad-badge-bg); }
+    .badge-bad-text { fill: var(--bad-badge-text); font-size: 13px; font-weight: 700; text-anchor: middle; }
+    .caption { fill: var(--muted); font-size: 12px; font-style: italic; }
+    .queue-zone { fill: var(--queue-zone); }
+    .divider { stroke: var(--border); stroke-width: 1; }
+  </style>
+
+  <!-- ============ Panel A: Poseidon ============ -->
+  <rect class="panel-bg" x="20" y="20" width="860" height="210" rx="12"/>
+
+  <text class="title" x="40" y="50">Poseidon — shared-nothing per-core</text>
+  <text class="subtitle" x="40" y="68">cada core: seu proprio listen · epoll · accept · recv · parse · handle · send</text>
+
+  <rect class="badge-good-bg" x="610" y="32" width="250" height="28" rx="14"/>
+  <text class="badge-good-text" x="735" y="51">127.532 RPS · 0 erros</text>
+
+  <!-- Lane: Core 0 -->
+  <g>
+    <text class="core-label" x="140" y="106">Core 0</text>
+    <line class="track" x1="160" y1="102" x2="850" y2="102"/>
+    <circle class="packet-poseidon" r="6" cy="102" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.6s" begin="-0.00s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="102" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.6s" begin="-0.32s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="102" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.6s" begin="-0.64s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="102" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.6s" begin="-0.96s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="102" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.6s" begin="-1.28s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- Lane: Core 1 -->
+  <g>
+    <text class="core-label" x="140" y="140">Core 1</text>
+    <line class="track" x1="160" y1="136" x2="850" y2="136"/>
+    <circle class="packet-poseidon" r="6" cy="136" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.75s" begin="-0.00s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="136" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.75s" begin="-0.35s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="136" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.75s" begin="-0.70s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="136" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.75s" begin="-1.05s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="136" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.75s" begin="-1.40s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- Lane: Core 2 -->
+  <g>
+    <text class="core-label" x="140" y="174">Core 2</text>
+    <line class="track" x1="160" y1="170" x2="850" y2="170"/>
+    <circle class="packet-poseidon" r="6" cy="170" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.9s" begin="-0.00s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="170" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.9s" begin="-0.38s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="170" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.9s" begin="-0.76s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="170" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.9s" begin="-1.14s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="170" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.9s" begin="-1.52s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- Lane: Core N -->
+  <g>
+    <text class="core-label" x="140" y="208">Core N</text>
+    <line class="track" x1="160" y1="204" x2="850" y2="204"/>
+    <circle class="packet-poseidon" r="6" cy="204" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.65s" begin="-0.00s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="204" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.65s" begin="-0.33s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="204" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.65s" begin="-0.66s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="204" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.65s" begin="-0.99s" repeatCount="indefinite"/>
+    </circle>
+    <circle class="packet-poseidon" r="6" cy="204" cx="160">
+      <animate attributeName="cx" values="160;850" keyTimes="0;1" dur="1.65s" begin="-1.32s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- ============ Divider ============ -->
+  <line class="divider" x1="20" y1="240" x2="880" y2="240"/>
+
+  <!-- ============ Panel B: Horse ============ -->
+  <rect class="panel-bg" x="20" y="250" width="860" height="210" rx="12"/>
+
+  <text class="title" x="40" y="280">Horse — epoll unico, tudo serializado</text>
+  <text class="subtitle" x="40" y="298">um loop unico: accept · recv · parse · handle · send — para cada conexao</text>
+
+  <rect class="badge-bad-bg" x="610" y="262" width="250" height="28" rx="14"/>
+  <text class="badge-bad-text" x="735" y="281">3.780 RPS · 61% erros</text>
+
+  <text class="core-label" x="140" y="394">epoll</text>
+  <line class="track" x1="160" y1="390" x2="850" y2="390"/>
+
+  <rect class="queue-zone" x="270" y="376" width="70" height="28" rx="14" opacity="0.12">
+    <animate attributeName="opacity" values="0.10;0.28;0.10" dur="2s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Horse packets: 2 survivors (slow escape), 4 errors (stuck, turn red, vanish) -->
+  <!-- error #1 -->
+  <circle r="6" cy="390" cx="160" fill="#d4820a">
+    <animate attributeName="cx" values="160;305;305" keyTimes="0;0.2;1" dur="6s" begin="-0.0s" repeatCount="indefinite"/>
+    <animate attributeName="fill" values="#d4820a;#d4820a;#e5484d;#e5484d" keyTimes="0;0.25;0.35;1" dur="6s" begin="-0.0s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;1;1;0;0" keyTimes="0;0.3;0.4;0.45;1" dur="6s" begin="-0.0s" repeatCount="indefinite"/>
+  </circle>
+  <!-- survivor #1 -->
+  <circle r="6" cy="390" cx="160" fill="#d4820a">
+    <animate attributeName="cx" values="160;305;305;850" keyTimes="0;0.2;0.8;1" dur="6s" begin="-1.0s" repeatCount="indefinite"/>
+  </circle>
+  <!-- error #2 -->
+  <circle r="6" cy="390" cx="160" fill="#d4820a">
+    <animate attributeName="cx" values="160;305;305" keyTimes="0;0.2;1" dur="6s" begin="-2.0s" repeatCount="indefinite"/>
+    <animate attributeName="fill" values="#d4820a;#d4820a;#e5484d;#e5484d" keyTimes="0;0.25;0.35;1" dur="6s" begin="-2.0s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;1;1;0;0" keyTimes="0;0.3;0.4;0.45;1" dur="6s" begin="-2.0s" repeatCount="indefinite"/>
+  </circle>
+  <!-- error #3 -->
+  <circle r="6" cy="390" cx="160" fill="#d4820a">
+    <animate attributeName="cx" values="160;305;305" keyTimes="0;0.2;1" dur="6s" begin="-3.0s" repeatCount="indefinite"/>
+    <animate attributeName="fill" values="#d4820a;#d4820a;#e5484d;#e5484d" keyTimes="0;0.25;0.35;1" dur="6s" begin="-3.0s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;1;1;0;0" keyTimes="0;0.3;0.4;0.45;1" dur="6s" begin="-3.0s" repeatCount="indefinite"/>
+  </circle>
+  <!-- survivor #2 -->
+  <circle r="6" cy="390" cx="160" fill="#d4820a">
+    <animate attributeName="cx" values="160;305;305;850" keyTimes="0;0.2;0.8;1" dur="6s" begin="-4.0s" repeatCount="indefinite"/>
+  </circle>
+  <!-- error #4 -->
+  <circle r="6" cy="390" cx="160" fill="#d4820a">
+    <animate attributeName="cx" values="160;305;305" keyTimes="0;0.2;1" dur="6s" begin="-5.0s" repeatCount="indefinite"/>
+    <animate attributeName="fill" values="#d4820a;#d4820a;#e5484d;#e5484d" keyTimes="0;0.25;0.35;1" dur="6s" begin="-5.0s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;1;1;0;0" keyTimes="0;0.3;0.4;0.45;1" dur="6s" begin="-5.0s" repeatCount="indefinite"/>
+  </circle>
+
+  <text class="caption" x="160" y="432">Toda conexao espera no mesmo loop — o throughput desaba, a maioria das requisicoes expira.</text>
+</svg>

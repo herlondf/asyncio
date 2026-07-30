@@ -75,23 +75,9 @@ end.
 
 ## Architecture: Shared-Nothing Per-Core
 
-```
-Kernel distributes via SO_REUSEPORT (IP hash)
-              │
-    ┌─────────┼─────────┐
-    ▼         ▼         ▼
-┌────────┐ ┌────────┐ ┌────────┐
-│ Core 0 │ │ Core 1 │ │ Core N │
-│ listen │ │ listen │ │ listen │  ← own socket
-│ epoll  │ │ epoll  │ │ epoll  │  ← own epoll fd
-│ accept │ │ accept │ │ accept │
-│ recv   │ │ recv   │ │ recv   │  ← all inline
-│ parse  │ │ parse  │ │ parse  │
-│ handle │ │ handle │ │ handle │
-│ send   │ │ send   │ │ send   │
-└────────┘ └────────┘ └────────┘
-  ~170 conn  ~170 conn  ~170 conn
-```
+<p align="center">
+  <img src="docs/architecture-flow.svg" alt="Poseidon's shared-nothing per-core request flow vs. Horse's single epoll loop" width="880"/>
+</p>
 
 Each core does everything: accept, recv, parse, execute handler, send response. No queues, no locks, no contention. Linear scaling with core count.
 
