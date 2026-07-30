@@ -1,10 +1,33 @@
 # Throughput Benchmark
 
-The full benchmark suite is at [`benchmark/`](../../../benchmark/).
-It starts four Poseidon configurations on dedicated ports and runs 14 scenarios
-covering payload size, concurrency, and blocking I/O simulation.
+For a quick self-contained throughput check against a local build, see
+[`samples/08-benchmark/`](../../../samples/08-benchmark/) — it runs keep-alive
+and new-connection-per-request scenarios and prints a latency table (Avg/P50/P95/P99),
+plus an HTML report with charts.
 
-## Configurations tested
+For a full multi-framework comparison harness (Docker, k6, wrk, Grafana,
+Poseidon vs. Horse/other frameworks under realistic load), see the separate
+`Benchmark` repository — it is not part of this repo.
+
+## Running the sample
+
+```
+cd samples/08-benchmark
+build.bat          # compiles with dcc64 directly (no MSBuild)
+bin\Release\Poseidon.Sample.Benchmark.exe
+```
+
+HTML report is saved next to the executable.
+
+## Historical reference results
+
+The numbers below were captured with an older in-repo benchmark suite
+(since removed) that started four Poseidon configurations on dedicated ports
+and ran 14 scenarios covering payload size, concurrency, and blocking I/O
+simulation. Kept here as a historical reference point — not reproducible
+with the current sample above, which covers a narrower scenario set.
+
+### Configurations tested (historical)
 
 | Name | Port | Description |
 |------|------|-------------|
@@ -12,16 +35,6 @@ covering payload size, concurrency, and blocking I/O simulation.
 | `Workers=auto` | 19991 | Worker count = logical CPU count |
 | `Gzip` | 19992 | `Workers=auto` + response compression |
 | `SSL` | 19993 | `Workers=auto` + TLS (requires OpenSSL + certs) |
-
-## Running
-
-```
-cd benchmark
-build.bat          # compiles with dcc64 directly (no MSBuild)
-bin\Poseidon.Benchmark.exe
-```
-
-HTML report is saved to `bin\poseidon-bench.html`.
 
 ## Scenario matrix
 

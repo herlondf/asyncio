@@ -35,8 +35,9 @@ For pure in-memory handlers: `WorkerCount = logical CPU count × 2` is sufficien
 For handlers that hit a database (blocking I/O): start with `auto`, then tune upward if
 `avg_latency > 2 × DB_query_ms`.
 
-> For the full workers scaling matrix (W=4…32 × DAO=5/30/100ms × concurrency=10/50),
-> run `Poseidon.Benchmark.Workers` which generates HTML reports in `benchmark/bin/`.
+> For a full workers scaling matrix (W=4…32 × DAO=5/30/100ms × concurrency=10/50),
+> use the separate `Benchmark` repository's worker-pool tuning scripts — this is
+> outside the scope of this repo's own samples.
 
 ## Changing worker count
 

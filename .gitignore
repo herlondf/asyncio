@@ -43,6 +43,7 @@ __recovery/
 # ─── AI assistant config (not for public consumption) ─────────────────────────
 CLAUDE.md
 AGENTS.md
+.claude/
 
 # ─── Build / test logs ────────────────────────────────────────────────────────
 *_err.txt
@@ -50,18 +51,6 @@ AGENTS.md
 *_out2.txt
 *_output.txt
 *.log
-
-# ─── Benchmark artifacts ─────────────────────────────────────────────────────
-benchmark/bench_*.txt
-benchmark/bout.txt
-benchmark/build_output.txt
-benchmark/build*.bat
-benchmark/linux/*.err
-benchmark/linux/*.out
-benchmark/linux/*.ps1
-benchmark/linux/assets/
-benchmark/linux/results/
-benchmark/comparison/sysroot/
 
 # ─── OS noise ─────────────────────────────────────────────────────────────────
 Thumbs.db
@@ -85,6 +74,10 @@ tests/h2spec/*.o
 
 # Checkpoint temporario de sessao (nao commitar)
 CHECKPOINT-SESSAO-*.md
+
+# Snapshot temporario de avaliacao de maturidade (nao commitar)
+MATURIDADE-*.md
+SOAK-*.md
 
 # ─── Generated API reference (PasDoc) ──────────────────────────────────────────
 docs/api/html/

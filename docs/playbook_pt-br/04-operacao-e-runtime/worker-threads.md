@@ -35,8 +35,9 @@ Para handlers puramente em memória: `WorkerCount = número de CPUs × 2` é suf
 Para handlers que acessam banco de dados (I/O bloqueante): comece com `auto` e ajuste
 para cima se `latência_média > 2 × DB_query_ms`.
 
-> Para a matriz completa de escalonamento de workers (W=4…32 × DAO=5/30/100ms × concorrência=10/50),
-> execute `Poseidon.Benchmark.Workers`, que gera relatórios HTML em `benchmark/bin/`.
+> Para uma matriz completa de escalonamento de workers (W=4…32 × DAO=5/30/100ms × concorrência=10/50),
+> use os scripts de tuning de worker-pool do repositório separado `Benchmark` —
+> isso está fora do escopo dos samples deste repositório.
 
 ## Alterando o número de workers
 

@@ -1,10 +1,34 @@
 # Benchmark de Throughput
 
-O suite completo de benchmark está em [`benchmark/`](../../../benchmark/).
-Ele sobe quatro configurações do Poseidon em portas dedicadas e executa 14 cenários
-cobrindo tamanho de payload, concorrência e simulação de I/O bloqueante.
+Para uma checagem rápida e autocontida de throughput contra um build local, veja
+[`samples/08-benchmark/`](../../../samples/08-benchmark/) — ele roda cenários de
+keep-alive e nova-conexão-por-request e imprime uma tabela de latência
+(Avg/P50/P95/P99), além de um relatório HTML com gráficos.
 
-## Configurações testadas
+Para um harness de comparação multi-framework completo (Docker, k6, wrk,
+Grafana, Poseidon vs. Horse/outros frameworks sob carga realista), veja o
+repositório separado `Benchmark` — ele não faz parte deste repositório.
+
+## Executando o sample
+
+```
+cd samples/08-benchmark
+build.bat          # compila diretamente com dcc64 (sem MSBuild)
+bin\Release\Poseidon.Sample.Benchmark.exe
+```
+
+O relatório HTML é salvo ao lado do executável.
+
+## Resultados de referência histórica
+
+Os números abaixo foram capturados com uma suite de benchmark in-repo mais antiga
+(desde então removida) que subia quatro configurações do Poseidon em portas
+dedicadas e executava 14 cenários cobrindo tamanho de payload, concorrência e
+simulação de I/O bloqueante. Mantidos aqui como referência histórica — não
+reproduzíveis com o sample atual acima, que cobre um conjunto de cenários mais
+restrito.
+
+### Configurações testadas (histórico)
 
 | Nome | Porta | Descrição |
 |------|-------|-----------|
@@ -12,16 +36,6 @@ cobrindo tamanho de payload, concorrência e simulação de I/O bloqueante.
 | `Workers=auto` | 19991 | Workers = número de CPUs lógicas |
 | `Gzip` | 19992 | `Workers=auto` + compressão de resposta |
 | `SSL` | 19993 | `Workers=auto` + TLS (requer OpenSSL + certificados) |
-
-## Execução
-
-```
-cd benchmark
-build.bat          # compila diretamente com dcc64 (sem MSBuild)
-bin\Poseidon.Benchmark.exe
-```
-
-O relatório HTML é salvo em `bin\poseidon-bench.html`.
 
 ## Matriz de cenários
 
