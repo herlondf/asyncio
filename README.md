@@ -7,8 +7,9 @@
 </p>
 
 <p align="center">
-  High-performance HTTP framework for Delphi and Free Pascal — IOCP/RIO on Windows, io_uring/epoll on Linux.<br/>
-  128k RPS shared-nothing architecture. Zero errors under 500 concurrent connections.
+  Zero-dependency, native async HTTP framework for Delphi and Free Pascal.<br/>
+  IOCP/RIO on Windows, io_uring/epoll on Linux — HTTP/1.1, HTTP/2, WebSocket and 20 built-in middlewares out of the box.<br/>
+  <strong>128k RPS, zero errors under 500 concurrent connections.</strong>
 </p>
 
 ---
@@ -94,86 +95,19 @@ Kernel distributes via SO_REUSEPORT (IP hash)
 
 Each core does everything: accept, recv, parse, execute handler, send response. No queues, no locks, no contention. Linear scaling with core count.
 
-### I/O Backend Selection
-
-Backend is selected **once** at server startup, with automatic fallback:
-
-| Platform | Default | Alternative | Force Alternative |
-|----------|---------|-------------|-------------------|
-| **Windows** | IOCP | RIO (Registered I/O) | `{$DEFINE FORCE_RIO}` |
-| **Linux** | io_uring (≥ 5.1) | epoll | `{$DEFINE FORCE_EPOLL}` |
-
-- **IOCP**: Standard Windows async I/O with completion ports (default)
-- **RIO**: Shared-memory completion queues, zero-syscall polling, pre-registered buffers (opt-in via `FORCE_RIO`)
-- **io_uring**: Linux async I/O with registered files (`IORING_REGISTER_FILES`)
-- **epoll**: Shared-nothing per-core with `SO_REUSEPORT`
+The I/O backend is selected **once** at startup, with automatic fallback: **IOCP** (Windows default) or **RIO** (opt-in, zero-syscall polling via `FORCE_RIO`); **io_uring** ≥ 5.1 (Linux default) or **epoll** (fallback / opt-in via `FORCE_EPOLL`).
 
 ---
 
 ## Features
 
-### Framework
-| Feature | Status |
-|---------|--------|
-| Hash-map router with `:param` support (O(1) lookup) | ✅ |
-| Middleware pipeline (Use, Group, GroupBlock) | ✅ |
-| Fluent route registration (Get, Post, Put, Delete, Patch, Head, All) | ✅ |
-| Stack-allocated request context (zero-copy) | ✅ |
-| DTO binding with validation attributes | ✅ |
-| OpenAPI 3.x + Swagger UI | ✅ |
-| RFC 7807 Problem Details | ✅ |
-| Signed cookies (HMAC-SHA256) | ✅ |
+**Engine** — HTTP/1.1 keep-alive · HTTP/2 (ALPN h2, h2c, server push, flow control) · WebSocket (RFC 6455, permessage-deflate) · HTTPS native OpenSSL (SNI, mTLS) · gzip + Brotli compression · Proxy Protocol v1/v2 · Graceful reload (PID file, SIGTERM, zero-downtime) · Windows 64-bit (IOCP/RIO) + Linux 64-bit (io_uring/epoll) · Delphi 11+ and Free Pascal 3.3.1
 
-### Engine
-| Feature | Status |
-|---------|--------|
-| HTTP/1.1 keep-alive | ✅ |
-| HTTPS (OpenSSL), SNI, mTLS | ✅ |
-| HTTP/2 (ALPN h2, h2c, server push, flow control) | ✅ |
-| WebSocket (RFC 6455, permessage-deflate) | ✅ |
-| gzip + Brotli compression | ✅ |
-| Proxy Protocol v1/v2 | ✅ |
-| Graceful reload (PID file, SIGTERM, zero-downtime) | ✅ |
-| Windows 64-bit (IOCP / RIO) | ✅ |
-| Linux 64-bit (io_uring / epoll) | ✅ |
-| Delphi 11+ compiler | ✅ |
-| Free Pascal (FPC 3.3.1) / Lazarus — Win64 + Linux | ✅ |
+**Framework** — Hash-map router, O(1) lookup, `:param` support · Fluent route registration (Get/Post/Put/Delete/Patch/Head/All) · Zero-copy, stack-allocated request context · DTO binding with validation attributes · OpenAPI 3.x + Swagger UI · RFC 7807 Problem Details · Signed cookies (HMAC-SHA256)
 
-### Performance Engineering
-| Feature | Status |
-|---------|--------|
-| Cache-line padding on atomic counters | ✅ |
-| DisconnectEx socket recycling pool (Windows) | ✅ |
-| io_uring registered files (Linux) | ✅ |
-| Vectored I/O (writev / WSASend) | ✅ |
-| Thread-local header arena | ✅ |
-| io_uring multishot accept | ✅ |
-| Buffer pool (Acquire/Release, 8 KB) | ✅ |
+**Performance engineering** — Cache-line padded atomic counters · Vectored I/O (writev/WSASend) · io_uring registered files + multishot accept · DisconnectEx socket recycling (Windows) · Thread-local header arena · 8 KB buffer pool (Acquire/Release)
 
-### 20 Built-in Middlewares
-
-| Middleware | Description |
-|-----------|-------------|
-| `Poseidon.Middleware.CORS` | CORS headers |
-| `Poseidon.Middleware.JWT` | HMAC-SHA256 Bearer token validation |
-| `Poseidon.Middleware.Logger` | Request logging |
-| `Poseidon.Middleware.RateLimit` | Fixed-window IP rate limiter |
-| `Poseidon.Middleware.Compression` | gzip/deflate response compression |
-| `Poseidon.Middleware.Timeout` | Per-request timeout → 503 |
-| `Poseidon.Middleware.BodyLimit` | Content-Length guard → 413 |
-| `Poseidon.Middleware.RequestID` | X-Request-ID echo/generate |
-| `Poseidon.Middleware.CircuitBreaker` | Sliding-window circuit breaker → 503 |
-| `Poseidon.Middleware.Metrics` | Prometheus /metrics endpoint |
-| `Poseidon.Middleware.Static` | Static file server (ETag, gzip, 304) |
-| `Poseidon.Middleware.HealthCheck` | /health endpoint |
-| `Poseidon.Middleware.Security` | Security headers (HSTS, CSP, X-Frame) |
-| `Poseidon.Middleware.Proxy` | HTTP reverse proxy |
-| `Poseidon.Middleware.Digest` | Digest authentication (RFC 7616) |
-| `Poseidon.Middleware.Guard` | IP whitelist/blacklist guard |
-| `Poseidon.Middleware.Validation` | DTO validation with attributes |
-| `Poseidon.Middleware.ProblemDetails` | RFC 7807 error formatting |
-| `Poseidon.Middleware.OpenAPI` | OpenAPI 3.x spec + Swagger UI |
-| `Poseidon.Middleware.Cache` | In-memory response cache (LRU, ETag, 304) |
+**20 built-in middlewares** — CORS, JWT, Logger, RateLimit, Compression, Timeout, BodyLimit, RequestID, CircuitBreaker, Metrics, Static, HealthCheck, Security, Proxy, Digest, Guard, Validation, ProblemDetails, OpenAPI, Cache
 
 ---
 
@@ -241,30 +175,6 @@ begin
 end.
 ```
 
-### Route Groups
-
-```pascal
-App.GroupBlock('/api/v1',
-  procedure(G: TNativeGroup)
-  begin
-    G.Get('/users',
-      procedure(var Ctx: TNativeRequestContext)
-      begin
-        Ctx.Status := 200;
-        Ctx.ContentType := 'application/json';
-        Ctx.Body := TEncoding.UTF8.GetBytes('[]');
-      end);
-
-    G.Post('/users',
-      procedure(var Ctx: TNativeRequestContext)
-      begin
-        Ctx.Status := 201;
-        Ctx.ContentType := 'application/json';
-        Ctx.Body := TEncoding.UTF8.GetBytes('{"id":1}');
-      end);
-  end);
-```
-
 ### WebSocket
 
 ```pascal
@@ -273,39 +183,6 @@ App.WebSocket('/ws',
   begin
     Conn.Send(Data);  // echo
   end);
-```
-
-### Graceful Reload (Linux)
-
-```pascal
-uses
-  Poseidon.Native.Types,
-  Poseidon.Native.Server,
-  Poseidon.GracefulReload;
-
-var
-  App: TPoseidonServer;
-begin
-  App := TPoseidonServer.Create;
-  App.PIDFile := '/run/poseidon.pid';
-  App.PerCoreAccept := True;
-  App.DrainTimeoutMs := 5000;
-
-  App.Get('/ping', MyHandler);
-
-  InstallSignalHandler(procedure begin App.Stop; end);
-
-  App.Listen(8080);
-end.
-```
-
-Deploy script:
-
-```bash
-OLD_PID=$(cat /run/poseidon.pid)
-./poseidon-new &
-sleep 2
-kill -TERM $OLD_PID
 ```
 
 ### SSL/TLS
@@ -317,48 +194,9 @@ App.EnableHTTP2;
 App.Listen(443);
 ```
 
-## Source Layout
+More recipes (route groups, graceful reload, security hardening, metrics) live in the [playbook](docs/playbook/README.md).
 
-```
-src/
-  Poseidon.Native.Server.pas          ← TPoseidonServer (native API, instance-based)
-  Poseidon.Native.Router.pas          ← hash-map router O(1) for native API
-  Poseidon.Native.Types.pas           ← TNativeRequestContext, handler types
-  Poseidon.Native.Group.pas           ← route groups
-  Poseidon.GracefulReload.pas         ← PID file + SIGTERM handler
-  Poseidon.Net.HttpServer.pas         ← async HTTP server orchestrator
-  Poseidon.Net.IO.Epoll.pas           ← shared-nothing per-core epoll
-  Poseidon.Net.IO.IOCP.pas            ← Windows IOCP backend + DisconnectEx recycling
-  Poseidon.Net.IO.IOUring.pas         ← Linux io_uring backend + registered files
-  Poseidon.Net.IO.RIO.pas             ← Windows RIO backend (zero-syscall polling)
-  Poseidon.Net.Dispatcher.pas         ← pipeline pattern (9 steps)
-  Poseidon.Net.Connection.pas         ← per-connection state (cache-line padded)
-  Poseidon.Net.Connection.Manager.pas ← connection admission, per-IP tracking
-  Poseidon.Net.SSL.Manager.pas        ← SSL context, SNI, mTLS
-  Poseidon.Net.WebSocket.Manager.pas  ← WS handlers, upgrade, frames
-  Poseidon.Net.HTTP2.Manager.pas      ← H2C upgrade, streams, push
-  Poseidon.Net.IdleSweep.pas          ← idle connection timeout
-  Poseidon.Net.ResponseBuilder.pas    ← pre-encoded response fragments + vectored headers
-  Poseidon.Net.Pool.Buffer.pas        ← buffer pool (8 KB, Acquire/Release)
-  Poseidon.Net.Pool.Arena.pas         ← thread-local header arena
-  Poseidon.Net.Pool.Socket.pas        ← DisconnectEx socket recycling (Windows)
-  Poseidon.Net.Pool.Workers.pas       ← adaptive worker thread pool
-middlewares/
-  Poseidon.Middleware.*.pas           ← 20 production-ready middlewares
-samples/
-  01-basic-http-server/               ← minimal TPoseidonServer setup
-  02-ssl-tls/                         ← HTTPS + SNI
-  03-websocket/                       ← WebSocket echo
-  04-http2/                           ← HTTP/2 with ALPN
-  06-security/                        ← security hardening
-  07-http2-server-push/               ← HTTP/2 server push
-  08-benchmark/                       ← benchmark setup
-  09-graceful-reload/                 ← zero-downtime restart
-  10-metrics-dashboard/               ← Prometheus /metrics + dashboard
-tests/
-  DUnitX tests                        ← engine + framework + 20 middleware tests
-  fpc/                                ← Free Pascal build + serve gates (Win + Linux)
-```
+---
 
 ## Documentation
 
@@ -373,15 +211,17 @@ tests/
 
 > *Poseidon commands the seas — raw power, the async engine beneath the waves.*
 > *Triton, his son, guards the depths — holds the connections that must not be lost.*
-> *Pegasus flies through the skies — HTTP routing, middleware and providers.*
 > *Hermes runs between all realms — carries messages, faster than any wave.*
+> *Hefesto forges in the depths — invisible, tireless, turning raw material into finished work.*
+> *Apollo is the god of light and truth — brings everything to light.*
 
 | Project | Myth | Role |
 |---------|------|------|
 | **Poseidon** (this) | God of the seas | Async-native HTTP framework + I/O engine — IOCP/RIO, io_uring/epoll |
 | [**Triton**](https://github.com/herlondf/triton) | Son of Poseidon, guardian of the depths | Generic resource pool — connections, clients, SMTP |
-| [**Pegasus**](https://github.com/herlondf/pegasus) | Born from Poseidon's blood, ridden by heroes | HTTP framework — routing, middleware, providers |
-| **Hermes** *(Redis4D)* | Messenger of the gods, guide between realms | Redis client — key-value, pub/sub, messaging |
+| [**Hermes**](https://github.com/herlondf/hermes) | Messenger of the gods, guide between realms | Redis client — key-value, pub/sub, messaging |
+| [**Hefesto**](https://github.com/herlondf/hefesto) | Forgemaster of the gods, works unseen | Background jobs — queues, workers, retry, scheduling |
+| [**Apollo**](https://github.com/herlondf/apollo) | God of light and truth, brings things to light | Structured logging — async sinks, OTLP, Seq, Loki, Datadog |
 
 ---
 
