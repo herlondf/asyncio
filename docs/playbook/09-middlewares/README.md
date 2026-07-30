@@ -23,73 +23,90 @@ uses Poseidon.Middleware.CORS;
 App.Use(CORSMiddleware);
 
 // With options
-App.Use(CORSMiddleware([
-  CORSAllowOrigin('https://example.com'),
-  CORSAllowMethods('GET,POST,PUT,DELETE'),
-  CORSAllowHeaders('Authorization,Content-Type'),
-  CORSMaxAge(86400)
-]));
+var LOpts: TCORSOptions;
+LOpts := DefaultCORSOptions;
+LOpts.AllowOrigin   := 'https://example.com';
+LOpts.AllowMethods  := 'GET, POST, PUT, DELETE';
+LOpts.AllowHeaders  := 'Authorization, Content-Type';
+LOpts.MaxAge        := 86400;
+App.Use(CORSMiddleware(LOpts));
 ```
+
+`TCORSOptions` is a plain record (`AllowOrigin`, `AllowMethods`, `AllowHeaders`,
+`ExposeHeaders`, `AllowCredentials`, `MaxAge`). `DefaultCORSOptions` returns the
+built-in defaults to start from.
 
 ---
 
 ## 2. JWT
 
-Validates a Bearer token in the `Authorization` header. Injects claims into
-`ACtx` on success; returns `401` on missing or invalid token.
+Validates a Bearer token (HMAC-SHA256 / HS256) in the `Authorization` header.
+Raises `EPoseidonException(401)` on missing, invalid, or expired tokens.
 
 ```pascal
 uses Poseidon.Middleware.JWT;
 
 App.Use(JWTMiddleware('my-secret'));
 
-// Per-route
-App.Get('/profile', JWTMiddleware('my-secret'), HandleProfile);
+// Per-route, with issuer/audience checks and a mandatory exp claim
+App.Get('/profile',
+  JWTMiddleware('my-secret', 'Unauthorized', 'my-issuer', 'my-audience', True),
+  HandleProfile);
 ```
 
-The secret may be a symmetric HMAC key or a PEM-encoded RSA/EC public key.
+`JWTSign(APayload, ASecret)` mints a token for testing/issuing. Only symmetric
+HMAC secrets are supported — no RSA/EC public-key verification.
 
 ---
 
 ## 3. Logger
 
-Writes one line per request to stdout (or a custom writer): method, path,
-status, duration, and bytes sent.
+Writes one line per request to stdout (or a custom sink): method, path,
+status, and elapsed time.
 
 ```pascal
 uses Poseidon.Middleware.Logger;
 
 App.Use(LoggerMiddleware);
 
-// Custom format
-App.Use(LoggerMiddleware(LLoggerOptions));
+// Custom sink (e.g. a file)
+App.Use(LoggerMiddleware(LogToFile('access.log')));
+
+// JSON lines instead of plain text
+App.Use(LoggerMiddlewareJSON);
 ```
 
-Output format: `[ISO8601] METHOD /path STATUS DURATIONms BYTESb`
+`TLogOutput = reference to procedure(const ALine: string)` — pass any callback
+that writes the formatted line somewhere other than stdout.
 
 ---
 
 ## 4. RateLimit
 
-Token-bucket rate limiter keyed by client IP. Returns `429 Too Many Requests`
-with a `Retry-After` header when the bucket is empty.
+In-memory, per-IP **fixed-window** rate limiter. Thread-safe. Returns
+`429 Too Many Requests` with a `Retry-After` header once the window's request
+count is exceeded.
 
 ```pascal
 uses Poseidon.Middleware.RateLimit;
 
-// 100 requests per 60-second window
+// max 100 requests per 60-second window, per IP
 App.Use(RateLimitMiddleware(100, 60));
 ```
 
-The counter store is in-process. For multi-process deployments, wire in a Redis
-backend via the `IRateLimitStore` interface.
+Additional optional parameters: a custom message, `ATrustProxy` +
+`ATrustedProxies` (to key by `X-Forwarded-For` only from trusted proxy IPs),
+and `AMaxTrackedKeys` (bounds memory under a high-cardinality IP attack).
+The counter store is in-process only — there is no pluggable external
+(e.g. Redis) backend.
 
 ---
 
 ## 5. Compression
 
 Compresses responses with gzip or deflate based on the client's
-`Accept-Encoding` header. Skips responses below a configurable minimum size.
+`Accept-Encoding` header. Skips responses below a configurable minimum size
+(default 860 bytes).
 
 ```pascal
 uses Poseidon.Middleware.Compression;
@@ -145,29 +162,35 @@ uses Poseidon.Middleware.RequestID;
 App.Use(RequestIDMiddleware);
 ```
 
-Retrieve in a handler: `ACtx.Headers.Values['X-Request-Id']`
+Retrieve in a handler: `ACtx.Header('X-Request-Id')`
 
 ---
 
 ## 9. CircuitBreaker
 
-Tracks handler failures and opens the circuit after `AThreshold` consecutive
-errors, returning `503` until `AResetSecs` have elapsed. Closes automatically
-on the first successful probe request.
+Sliding-window circuit breaker with three states: `Closed → Open → HalfOpen →
+Closed`. Opens once the error rate over the window exceeds a percentage
+threshold, returning `503` while open; probes a half-open request before
+fully closing again.
 
 ```pascal
 uses Poseidon.Middleware.CircuitBreaker;
 
-// Open after 5 failures; retry after 30 seconds
-App.Use(CircuitBreakerMiddleware(5, 30));
+App.Use(CircuitBreakerMiddleware);
+
+// Open when >= 50% of requests error over a 60s window; stay open 30s
+App.Use(CircuitBreakerMiddleware(50, 60, 30));
 ```
+
+Parameters: `AErrorThresholdPct` (default 50), `AWindowSec` (default 60),
+`AOpenDurationSec` (default 30).
 
 ---
 
 ## 10. Metrics
 
-Exposes a Prometheus-compatible `/metrics` endpoint with counters and histograms
-for request count, error rate, and response-time distribution.
+Exposes a Prometheus-compatible `/metrics` endpoint with per-path request
+counts, error counts, and a request-duration histogram.
 
 ```pascal
 uses Poseidon.Middleware.Metrics;
@@ -175,53 +198,66 @@ uses Poseidon.Middleware.Metrics;
 App.Use(MetricsMiddleware('/metrics'));
 ```
 
-Collected labels: `method`, `path`, `status`. The histogram has pre-configured
-buckets at 5 ms, 10 ms, 25 ms, 50 ms, 100 ms, 250 ms, 500 ms, 1 s, 2.5 s.
+Metrics are labeled by `path` only (no `method`/`status` labels — errors are a
+separate `poseidon_errors_total` counter). Histogram bucket bounds (ms):
+5, 10, 25, 50, 100, 250, 500, 1000, +Inf. Path cardinality is capped
+(default 10000 unique paths) to bound memory under a hostile-path attack.
 
 ---
 
 ## 11. Static
 
 Serves files from a local directory tree under a URL prefix. Handles
-`If-Modified-Since`, `ETag`, and byte-range requests automatically.
+`If-None-Match` / `ETag` (returns `304 Not Modified`), MIME detection, and
+optional gzip compression.
 
 ```pascal
 uses Poseidon.Middleware.Static;
 
 App.Use(StaticMiddleware('/assets', '/var/www/assets'));
+
+// Disable gzip
+App.Use(StaticMiddleware('/assets', '/var/www/assets', False));
 ```
 
-Directory listings are disabled by default. Pass `StaticEnableDirList` in
-options to enable them.
+No byte-range (`Range`/`206 Partial Content`) support, and no directory
+listing feature.
 
 ---
 
 ## 12. HealthCheck
 
-Returns `200 OK` with a JSON body on the configured path. Supports custom
-liveness and readiness probes via callbacks.
+Health-check endpoints (`/health`, `/health/live`, `/health/ready`) built via a
+small fluent builder — not a plain middleware function. Supports custom
+liveness/readiness probes registered by name.
 
 ```pascal
 uses Poseidon.Middleware.HealthCheck;
 
-App.Use(HealthCheckMiddleware('/health'));
-
-// With custom check
-App.Use(HealthCheckMiddleware('/health', procedure(var AOk: Boolean)
-begin
-  AOk := FDBConnection.Ping;
-end));
+var LHealth: TPoseidonHealthCheck;
+LHealth := TPoseidonHealthCheck.Create;
+LHealth
+  .BasePath('/health')
+  .AddCheck('postgres', function: THealthCheckResult
+    begin
+      if FDBConnection.Ping then
+        Result := THealthCheckResult.OK
+      else
+        Result := THealthCheckResult.Failed('db unreachable');
+    end);
+App.Use(LHealth.Build);
 ```
 
-Response body: `{"status":"ok","uptime":12345}`
+`Build` consumes and frees the builder — call it once, after all checks are
+registered.
 
 ---
 
 ## 13. Security
 
-Sets common security response headers: `X-Frame-Options`, `X-Content-Type-Options`,
-`X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, and a configurable
-`Content-Security-Policy`.
+Sets common security response headers: `Strict-Transport-Security` (HSTS,
+only over TLS), `Content-Security-Policy`, `X-Frame-Options`,
+`X-Content-Type-Options`, `Referrer-Policy`, and `Permissions-Policy`.
 
 ```pascal
 uses Poseidon.Middleware.Security;
@@ -235,34 +271,37 @@ Individual headers can be overridden via `TSecurityOptions`.
 
 ## 14. Proxy
 
-Forwards matching requests to an upstream HTTP server and streams the response
-back to the client. Rewrites the request path by stripping the configured prefix.
+Forwards matching requests to a single upstream HTTP server and streams the
+response back to the client.
 
 ```pascal
 uses Poseidon.Middleware.Proxy;
 
-App.Use(ProxyMiddleware('/api', 'http://backend:8080'));
+// Forward everything as-is
+App.Use(ProxyMiddleware('http://backend:8080'));
+
+// Forward and strip a path prefix before forwarding upstream
+App.Use(ProxyMiddlewareWithPrefix('http://backend:8080', '/api'));
 ```
 
-Supports upstream load balancing when multiple URLs are supplied as a
-comma-separated list. Uses a round-robin strategy by default.
+Single upstream only — there is no built-in multi-upstream load balancing.
 
 ---
 
 ## 15. Digest
 
-HTTP Digest authentication (`RFC 7616`). Challenges unauthenticated requests
-with a `WWW-Authenticate: Digest` header and validates credentials via a
-caller-supplied callback.
+HTTP Digest authentication (MD5, `qop=auth`). Challenges unauthenticated
+requests with a `WWW-Authenticate: Digest` header and validates credentials
+via a caller-supplied HA1 callback.
 
 ```pascal
 uses Poseidon.Middleware.Digest;
 
 App.Use(DigestMiddleware('Protected Area',
-  function(AUser: string): string
+  function(const AUser, ARealm: string): string
   begin
-    // Return the stored HA1 hash for AUser, or '' to reject
-    Result := FUserStore.GetHA1(AUser);
+    // Return HA1 = MD5(user:realm:password), or '' to reject
+    Result := DigestHA1(AUser, ARealm, FUserStore.GetPassword(AUser));
   end));
 ```
 
@@ -270,41 +309,52 @@ App.Use(DigestMiddleware('Protected Area',
 
 ## 16. Guard
 
-IP-based access control. Requests are checked against a whitelist and a
-blacklist. A non-empty whitelist means all other IPs are denied.
+Request hardening: HTTP method whitelisting, path-traversal rejection, and
+request-smuggling defenses (conflicting `Content-Length`/`Transfer-Encoding`).
+Not an IP allow/deny list — see [Security](../../../src/Poseidon.Net.Security.pas)
+for CIDR-based checks used elsewhere (e.g. Proxy Protocol).
 
 ```pascal
 uses Poseidon.Middleware.Guard;
 
-var LGuard: TGuardOptions;
-LGuard.Whitelist := ['10.0.0.0/8', '192.168.1.0/24'];
-LGuard.Blacklist := ['10.0.0.99'];
-App.Use(GuardMiddleware(LGuard));
-```
+// Smuggling/traversal checks only, any method allowed
+App.Use(GuardMiddleware);
 
-CIDR notation is supported for both lists.
+// Also restrict to an allowed method list (405 otherwise)
+App.Use(GuardMiddleware(['GET', 'POST']));
+```
 
 ---
 
 ## 17. Validation
 
-Validates request fields (body JSON properties, query params, headers) against
-a declarative rule set. Returns `422 Unprocessable Entity` with a structured
-error body on failure.
+Catches `EPoseidonValidation` (raised by `Poseidon.Validation`'s attribute-based
+validator) and converts it into an `application/problem+json` `422` response.
+Takes no parameters — validation rules themselves are declared as attributes
+on a DTO class, not inline in the middleware call.
 
 ```pascal
-uses Poseidon.Middleware.Validation;
+uses Poseidon.Middleware.Validation, Poseidon.Validation;
 
-App.Post('/users',
-  ValidationMiddleware([
-    VRequired('body.name'),
-    VEmail('body.email'),
-    VMinLength('body.password', 8)
-  ]),
-  HandleCreateUser);
+App.Use(ValidationMiddleware);
+
+type
+  TCreateUserDTO = class
+  public
+    [Required]
+    Name: string;
+    [Email]
+    Email: string;
+    [MinLength(8)]
+    Password: string;
+  end;
+
+// in the handler, after populating LDto from the request body:
+TPoseidonValidator.ValidateOrRaise(LDto); // raises EPoseidonValidation on failure
 ```
 
-Rules are composable. Custom rule functions are supported.
+Other available attributes: `[MaxLength(N)]`, `[Range(AMin, AMax)]`,
+`[Pattern(ARegex)]`.
 
 ---
 
@@ -337,38 +387,48 @@ Example output:
 
 ## 19. OpenAPI
 
-Generates an OpenAPI 3.1 specification from registered routes and serves it as
-JSON. Also mounts Swagger UI at a configurable path.
+Generates an OpenAPI 3.x specification from manually registered route metadata
+and serves it alongside a Swagger UI — a fluent builder, not a plain middleware
+function.
 
 ```pascal
 uses Poseidon.Middleware.OpenAPI;
 
-App.Use(OpenAPIMiddleware('/openapi.json', '/docs'));
+var LOpenAPI: TPoseidonOpenAPI;
+LOpenAPI := TPoseidonOpenAPI.Create;
+LOpenAPI
+  .Title('My API')
+  .Version('1.0.0')
+  .AddRoute('GET', '/ping', 'Health check')
+  .AddRoute('POST', '/users', 'Create user');
+App.Use(LOpenAPI.Build);
 ```
 
-Route metadata (summary, tags, request/response schemas) is supplied via
-`[OpenAPIRoute]` attributes on handler procedures, or via a fluent builder
-attached to the route registration.
+Defaults: spec at `/api-docs`, Swagger UI at `/api-docs/ui` (override the spec
+path with `.SpecPath(...)`). There is no attribute-based route-metadata
+mechanism — each route's summary/tags are supplied via `.AddRoute(...)`.
 
 ---
 
 ## 20. Cache
 
-HTTP response cache with LRU eviction, `ETag` generation, and `304 Not Modified`
-support. Cached responses are served without executing the handler.
+HTTP response cache with LRU eviction and automatic `ETag` generation
+(`If-None-Match` → `304 Not Modified`). Cached responses are served without
+executing the handler.
 
 ```pascal
 uses Poseidon.Middleware.Cache;
 
-// 512 entries, 60-second TTL
-App.Use(CacheMiddleware(512, 60));
+// 60s TTL, 50 MB max cache size
+App.Use(CacheMiddleware(60, 1024 * 1024 * 50));
 
 // Scope to specific routes
-App.Get('/products', CacheMiddleware(256, 300), HandleListProducts);
+App.Get('/products', CacheMiddleware(300, 1024 * 1024 * 10), HandleListProducts);
 ```
 
-Only `GET` and `HEAD` responses with status `200` are cached. The cache key
-includes the full URL path and query string. `Vary` headers are respected.
+Only `GET`/`HEAD` responses with status `200` are cached. The cache key
+includes the full path and query string. Served responses carry
+`Vary: Accept-Encoding`.
 
 ---
 

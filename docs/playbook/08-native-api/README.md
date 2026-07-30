@@ -22,7 +22,7 @@ begin
     LApp.MaxConnections := 10000;
     LApp.Get('/ping', procedure(var ACtx: TNativeRequestContext)
     begin
-      ACtx.Body := 'pong';
+      ACtx.Body := TEncoding.UTF8.GetBytes('pong');
     end);
     LApp.Listen(9000);
   finally
@@ -46,11 +46,12 @@ Key fields:
 | `Method` | `string` | HTTP verb (GET, POST, …) |
 | `Path` | `string` | URL path, without query string |
 | `QueryString` | `string` | Raw query string (after `?`) |
-| `Headers` | `TStringList` | Request headers (`Name: Value`) |
-| `Body` | `string` | Request or response body |
+| `Headers` | `TArray<TPair<string,string>>` | Request headers |
+| `RawBody` | `TBytes` | Raw inbound request body |
 | `Status` | `Integer` | HTTP response status code (default 200) |
 | `ContentType` | `string` | Response `Content-Type` header |
-| `ExtraHeaders` | `TStringList` | Additional response headers |
+| `Body` | `TBytes` | Response body bytes |
+| `ExtraHeaders` | `TArray<TPair<string,string>>` | Additional response headers |
 
 ### Accessing parameters
 
@@ -61,20 +62,25 @@ LId := ACtx.Param('id');
 
 // Query string parameter (?page=2)
 var LPage: string;
-LPage := ACtx.QueryParam('page');
+LPage := ACtx.Query('page');
 
 // Request header
 var LAuth: string;
-LAuth := ACtx.Headers.Values['Authorization'];
+LAuth := ACtx.Header('Authorization');
 ```
 
 ### Setting the response
 
 ```pascal
+var LLen: Integer;
+
 ACtx.Status      := 201;
 ACtx.ContentType := 'application/json';
-ACtx.Body        := '{"id":42}';
-ACtx.ExtraHeaders.Values['X-Request-Id'] := '...';
+ACtx.Body        := TEncoding.UTF8.GetBytes('{"id":42}');
+
+LLen := Length(ACtx.ExtraHeaders);
+SetLength(ACtx.ExtraHeaders, LLen + 1);
+ACtx.ExtraHeaders[LLen] := TPair<string,string>.Create('X-Request-Id', '...');
 ```
 
 ---
@@ -147,7 +153,7 @@ Groups apply a common prefix (and optionally shared middleware) to a set of rout
 ### Inline group
 
 ```pascal
-var LApi: TPoseidonRouteGroup;
+var LApi: TNativeGroup;
 LApi := App.Group('/api/v1');
 LApi.Get('/users', HandleListUsers);
 LApi.Post('/users', HandleCreateUser);
@@ -156,14 +162,16 @@ LApi.Post('/users', HandleCreateUser);
 ### Block group
 
 ```pascal
-App.GroupBlock('/api/v1', procedure
-begin
-  App.Get('/users',  HandleListUsers);
-  App.Post('/users', HandleCreateUser);
-end);
+App.GroupBlock('/api/v1',
+  procedure(G: TNativeGroup)
+  begin
+    G.Get('/users',  HandleListUsers);
+    G.Post('/users', HandleCreateUser);
+  end);
 ```
 
-Groups can be nested. Middleware passed to `Group` or `GroupBlock` applies only
+Groups cannot be nested — `TNativeGroup` does not expose its own `Group`/
+`GroupBlock`. Middleware passed to `Group` or `GroupBlock` applies only
 to routes registered within that group.
 
 ---
@@ -171,14 +179,22 @@ to routes registered within that group.
 ## WebSocket
 
 ```pascal
-App.WebSocket('/ws/chat', procedure(AConn: TPoseidonWSConnection; AMsg: string)
-begin
-  AConn.Send('echo: ' + AMsg);
-end);
+App.WebSocket('/ws/chat',
+  procedure(AConn: IPoseidonWSConn; const AFrame: TWebSocketFrame)
+  begin
+    if AFrame.Opcode = OPCODE_TEXT then
+      AConn.Send('echo: ' + TEncoding.UTF8.GetString(AFrame.Payload))
+    else if AFrame.Opcode = OPCODE_BINARY then
+      AConn.SendBinary(AFrame.Payload)
+    else if AFrame.Opcode = OPCODE_CLOSE then
+      AConn.Close(1000);
+  end);
 ```
 
 The WebSocket upgrade is handled automatically when the client sends a valid
-`Upgrade: websocket` request to the registered path.
+`Upgrade: websocket` request to the registered path. `TWebSocketFrame.Payload`
+carries the raw frame bytes — decode with `TEncoding.UTF8.GetString` for text
+frames (`OPCODE_TEXT`).
 
 ---
 
@@ -201,35 +217,46 @@ connections.
 ## Graceful reload
 
 ```pascal
-App.PIDFile := '/var/run/poseidon.pid';
-App.DrainTimeoutMs := 5000;
-InstallSignalHandler(App); // Linux only
-App.Listen(9000);
+App.PerCoreAccept := True;              // enables SO_REUSEPORT (Linux)
+App.PIDFile        := '/run/poseidon.pid';
+InstallSignalHandler(procedure begin App.Stop; end); // Linux only
+App.Listen(8080);
 ```
 
-On Linux, `InstallSignalHandler` maps `SIGUSR2` to a zero-downtime restart:
-the new process binds the same port (via `SO_REUSEPORT`) while the old process
-drains and exits. On Windows, the PID file is written but signal handling is
-not available — use a service manager restart instead.
+`InstallSignalHandler` (Linux-only, `{$IFNDEF MSWINDOWS}`) installs a
+`SIGTERM`/`SIGINT` handler that sets an atomic flag; `Listen`'s internal wait
+loop polls it every 500 ms and invokes the callback. For a zero-downtime
+deploy: start the new process (it binds the same port alongside the old one
+via `SO_REUSEPORT`, enabled by `PerCoreAccept`), then `kill -TERM` the old
+process's PID (read from `PIDFile`) to trigger its graceful `Stop`.
+
+On Windows, the PID file is written but `InstallSignalHandler` is not
+available — use a service manager restart instead.
 
 ---
 
 ## Configuration properties
 
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| `MaxConnections` | `Integer` | 10000 | Maximum concurrent open connections |
-| `WorkerCount` | `Integer` | CPU count | I/O worker threads |
-| `IdleTimeoutMs` | `Integer` | 30000 | Close idle keep-alive connections after this many ms |
-| `DrainTimeoutMs` | `Integer` | 5000 | Max ms to wait for in-flight requests on `Stop` |
-| `PerCoreAccept` | `Boolean` | False | Enable `SO_REUSEPORT` per-core accept (Linux) |
-| `PIDFile` | `string` | `''` | Path to write the process PID file |
-| `ReadBufferSize` | `Integer` | 32768 | Per-connection receive buffer size (bytes) |
-| `WriteBufferSize` | `Integer` | 65536 | Per-connection send buffer size (bytes) |
-| `MaxHeaderSize` | `Integer` | 8192 | Maximum total request header block size (bytes) |
-| `MaxBodySize` | `Int64` | 1 MB | Maximum request body size before 413 is returned |
-| `TCPNoDelay` | `Boolean` | True | Disable Nagle algorithm on accepted sockets |
-| `ReuseAddr` | `Boolean` | True | `SO_REUSEADDR` on the listener socket |
+| Property | Type | Description |
+|----------|------|-------------|
+| `MaxConnections` | `Integer` | Max total concurrent connections |
+| `MaxConnectionsPerIP` | `Integer` | Max concurrent connections per client IP |
+| `WorkerCount` | `Integer` | Max worker-thread pool size |
+| `MinWorkerCount` | `Integer` | Minimum (baseline) worker-thread count |
+| `IdleTimeoutMs` | `Integer` | Idle connection timeout, default 10000 ms |
+| `MaxRequestSize` | `Integer` | Max accepted request body size, default 8 MB |
+| `MaxHeaderSize` | `Integer` | Max accepted header block size, default 65536 bytes |
+| `DrainTimeoutMs` | `Integer` | Graceful-drain timeout on `Stop`, default 30000 ms |
+| `MaxQueueDepth` | `Integer` | Max depth of the worker dispatch queue (0 = unbounded) |
+| `SecureHeadersEnabled` | `Boolean` | Toggles automatic security response headers, default False |
+| `ServerBanner` | `string` | Value sent in the `Server` response header, default `'Poseidon/1.0'` |
+| `TCPFastOpen` | `Boolean` | Enables TCP Fast Open on the listener, default False |
+| `PerCoreAccept` | `Boolean` | Enable `SO_REUSEPORT` per-core accept (Linux), default False |
+| `SyncDispatch` | `Boolean` | Dispatches on the IO thread instead of the worker pool |
+| `PIDFile` | `string` | Path to write the process PID file, default `''` |
+
+> See [API-REFERENCE.md](../../API-REFERENCE.md) for the authoritative, hand-maintained
+> property list — kept in sync with `src/Poseidon.Native.Server.pas` on every public API change.
 
 ---
 
@@ -252,8 +279,10 @@ App.EnableHTTP2;
 App.Listen(443);
 ```
 
-SSL is handled by the built-in OpenSSL wrapper. The certificate files are read
-once at `Listen` time and reloaded on graceful restart without dropping connections.
+SSL is handled by the built-in OpenSSL wrapper. Certificate files are read
+once, at `Listen` time — picking up renewed certificates requires a graceful
+reload (new process, own fresh `Listen` call; see above), not an in-process
+hot-reload.
 
 ---
 
