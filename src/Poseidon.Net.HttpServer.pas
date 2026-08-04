@@ -1560,13 +1560,23 @@ end;
 // crash from a slow slide into saturation: worker pool growth, connection
 // build-up and in-flight backlog are exactly what precede one.
 procedure TPoseidonNativeServer._EmitHeartbeat;
+var
+  LAlive: Integer;
+  LIdle: Integer;
 begin
+  // ActiveWorkers counts every thread ALIVE, idle ones included — reporting it
+  // as "active" reads as "busy" and would mislead exactly when it matters. The
+  // actionable number is the difference: busy climbing toward pool, while pool
+  // itself climbs toward its ceiling, is the saturation slide.
+  LAlive := GetWorkerActiveCount;
+  LIdle := GetWorkerIdleCount;
   _Log(llInfo, Format(
-    '[health] conns=%d inflight=%d workers_active=%d workers_idle=%d backend=%s',
+    '[health] conns=%d inflight=%d pool=%d busy=%d idle=%d backend=%s',
     [FConnManager.Count,
      TInterlocked.Read(FInFlightCount),
-     GetWorkerActiveCount,
-     GetWorkerIdleCount,
+     LAlive,
+     LAlive - LIdle,
+     LIdle,
      FBackendName]));
 end;
 
