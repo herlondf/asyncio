@@ -19,9 +19,25 @@ interface
 
 uses
   System.SysUtils,
+  System.Generics.Collections,
   DUnitX.TestFramework;
 
 type
+  {$M+}
+  [TestFixture]
+  TResponseBuilderBoundsTests = class
+  private
+    procedure CheckHeadersFit(const AWhat: string; AStatus: Integer;
+      const AContentType: string; ABodyLen: Integer; AKeepAlive: Boolean;
+      const AExtra: TArray<TPair<string,string>>; ASecure: Boolean;
+      const ABanner: string);
+  public
+    [Test] procedure Headers_NeverWriteBeyondAllocated;
+    [Test] procedure Pooled_NeverWriteBeyondAllocated;
+    [Test] procedure Headers_NonAsciiExtraValue_StaysInBounds;
+    [Test] procedure Headers_VeryLongExtraValue_StaysInBounds;
+  end;
+
   {$M+}
   [TestFixture]
   TResponseBuilderTests = class
@@ -73,7 +89,6 @@ implementation
 
 uses
   System.Classes,
-  System.Generics.Collections,
   Poseidon.Net.Pool.Buffer,
   Poseidon.Net.ResponseBuilder;
 
@@ -496,7 +511,136 @@ begin
   Assert.IsTrue(True, 'TBufferPool.Release on a pooled buffer must not raise');
 end;
 
+
+{ TResponseBuilderBoundsTests }
+
+// The invariant these tests exist for: the builder sizes the buffer with
+// _CalcTotal and then fills it with _BuildCore. If the two ever disagree and
+// the count UNDER-estimates, _BuildCore writes past the end of the block —
+// which on Linux/glibc surfaces as `corrupted size vs. prev_size` or
+// `malloc(): unaligned tcache chunk detected`, far from the real cause. The
+// existing suite checks the response CONTENT; nothing checked the SIZE.
+procedure TResponseBuilderBoundsTests.CheckHeadersFit(const AWhat: string;
+  AStatus: Integer; const AContentType: string; ABodyLen: Integer;
+  AKeepAlive: Boolean; const AExtra: TArray<TPair<string,string>>;
+  ASecure: Boolean; const ABanner: string);
+var
+  LBuf: TBytes;
+  LActual: Integer;
+begin
+  LBuf := BuildHTTPResponseHeaders(AStatus, AContentType, ABodyLen, AKeepAlive,
+    AExtra, ASecure, ABanner, LActual);
+  Assert.IsTrue(LActual >= 0, AWhat + ': comprimento escrito negativo');
+  Assert.IsTrue(LActual <= Length(LBuf),
+    Format('%s: escreveu %d bytes num buffer de %d — OVERFLOW',
+      [AWhat, LActual, Length(LBuf)]));
+end;
+
+procedure TResponseBuilderBoundsTests.Headers_NeverWriteBeyondAllocated;
+const
+  CStatuses: array[0..7] of Integer = (200, 201, 204, 301, 304, 404, 500, 599);
+var
+  LCT: Integer;
+  LKA: Integer;
+  LSec: Integer;
+  LBan: Integer;
+  LSt: Integer;
+  LExtra: TArray<TPair<string,string>>;
+  LCTs: TArray<string>;
+  LBanners: TArray<string>;
+begin
+  // Varredura combinatoria: status (incluindo 204/304, que NAO tem corpo e
+  // seguem outro ramo no calculo), content-type vazio/comum/customizado,
+  // keep-alive, headers de seguranca e banner.
+  LCTs := TArray<string>.Create('', 'application/json', 'text/plain',
+    'application/vnd.acme.custom+xml; charset=utf-8');
+  LBanners := TArray<string>.Create('', 'Poseidon', 'X'  );
+  SetLength(LExtra, 2);
+  LExtra[0] := TPair<string,string>.Create('X-Request-Id', 'abc-123');
+  LExtra[1] := TPair<string,string>.Create('X-Trace', 'deadbeef');
+
+  for LSt := 0 to High(CStatuses) do
+    for LCT := 0 to High(LCTs) do
+      for LKA := 0 to 1 do
+        for LSec := 0 to 1 do
+          for LBan := 0 to High(LBanners) do
+          begin
+            CheckHeadersFit(
+              Format('status=%d ct="%s" ka=%d sec=%d banner="%s"',
+                [CStatuses[LSt], LCTs[LCT], LKA, LSec, LBanners[LBan]]),
+              CStatuses[LSt], LCTs[LCT], 123456, LKA = 1, LExtra,
+              LSec = 1, LBanners[LBan]);
+            // e sem nenhum header extra
+            CheckHeadersFit('sem extras', CStatuses[LSt], LCTs[LCT], 0,
+              LKA = 1, nil, LSec = 1, LBanners[LBan]);
+          end;
+end;
+
+procedure TResponseBuilderBoundsTests.Pooled_NeverWriteBeyondAllocated;
+var
+  LBody: TBytes;
+  LBuf: TBytes;
+  LActual: Integer;
+  I: Integer;
+  LSizes: TArray<Integer>;
+begin
+  // O buffer vem do pool, entao pode ser MAIOR que o necessario — mas nunca
+  // menor que o escrito. Tamanhos escolhidos em torno das fronteiras de tier
+  // (8 KB / 64 KB / 512 KB).
+  LSizes := TArray<Integer>.Create(0, 1, 8191, 8192, 8193, 65535, 65536, 65537);
+  for I := 0 to High(LSizes) do
+  begin
+    SetLength(LBody, LSizes[I]);
+    if LSizes[I] > 0 then
+      FillChar(LBody[0], LSizes[I], Ord('x'));
+    LBuf := BuildHTTPResponsePooled(200, 'application/json', LBody, True,
+      nil, True, 'Poseidon', LActual);
+    try
+      Assert.IsTrue(LActual <= Length(LBuf),
+        Format('corpo=%d: escreveu %d num buffer de %d — OVERFLOW',
+          [LSizes[I], LActual, Length(LBuf)]));
+      Assert.IsTrue(LActual > LSizes[I],
+        Format('corpo=%d: total escrito (%d) tem de incluir cabecalho + corpo',
+          [LSizes[I], LActual]));
+    finally
+      TBufferPool.Release(LBuf);
+    end;
+  end;
+end;
+
+procedure TResponseBuilderBoundsTests.Headers_NonAsciiExtraValue_StaysInBounds;
+var
+  LExtra: TArray<TPair<string,string>>;
+begin
+  // O tamanho e calculado a partir de Length(string) — contagem de CHARS — e a
+  // escrita usa TEncoding.ASCII, que emite 1 byte por char (nao-ASCII vira
+  // '?'). Se algum dia virar UTF-8, um char acentuado passaria a ocupar 2 bytes
+  // e o calculo ficaria curto. Este teste tranca esse contrato.
+  SetLength(LExtra, 3);
+  LExtra[0] := TPair<string,string>.Create('X-Nome', 'EMISSÃO NÃO TRIBUTÁVEL');
+  LExtra[1] := TPair<string,string>.Create('X-CJK', '日本語テスト');
+  LExtra[2] := TPair<string,string>.Create('X-Emoji', 'ok ' + #$D83D#$DE00);
+  CheckHeadersFit('valores nao-ASCII', 200, 'application/json', 100, True,
+    LExtra, True, 'Poseidon');
+end;
+
+procedure TResponseBuilderBoundsTests.Headers_VeryLongExtraValue_StaysInBounds;
+var
+  LExtra: TArray<TPair<string,string>>;
+  I: Integer;
+begin
+  // Muitos headers e um valor enorme: o bloco de extras domina o total.
+  SetLength(LExtra, 200);
+  for I := 0 to High(LExtra) do
+    LExtra[I] := TPair<string,string>.Create(Format('X-H%d', [I]),
+      StringOfChar('v', 512));
+  CheckHeadersFit('200 headers x 512 chars', 200, 'application/json', 999999,
+    True, LExtra, True, 'Poseidon');
+end;
+
+
 initialization
   TDUnitX.RegisterTestFixture(TResponseBuilderTests);
+  TDUnitX.RegisterTestFixture(TResponseBuilderBoundsTests);
 
 end.
