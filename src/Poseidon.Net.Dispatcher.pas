@@ -201,6 +201,39 @@ end;
 // Dispatch — tight loop over pre-configured steps
 // ---------------------------------------------------------------------------
 
+// Drops the first AConsumed bytes of the connection's accumulation buffer.
+//
+// The three call sites used to subtract without a guard:
+//
+//   if AccumLen > Consumed then Move(...);
+//   AccumLen := AccumLen - Consumed;      // <- unguarded
+//
+// Consumed never exceeds the buffer length today: ParseHTTP1Request receives
+// AccumLen as its cap and every path returns a count bounded by it. But that is
+// a NON-LOCAL invariant — it holds only while every caller keeps passing
+// AccumLen, and nothing in the compaction enforces it. If it were ever broken,
+// AccumLen would go NEGATIVE, and the next _ProcessRecvPlain would do
+//
+//   Move(ABuf^, LConn.AccumBuf[LConn.AccumLen], ALen)
+//
+// with a negative index — a write BEFORE the start of the block, which
+// destroys the preceding chunk header. glibc reports that as
+// `corrupted size vs. prev_size` or `malloc(): unaligned tcache chunk`.
+//
+// One comparison turns that into a discarded buffer.
+procedure _CompactAccum(AConn: TNativeConn; AConsumed: Integer);
+begin
+  if (AConsumed <= 0) or (AConn.AccumLen <= 0) then Exit;
+  if AConsumed >= AConn.AccumLen then
+  begin
+    AConn.AccumLen := 0;
+    Exit;
+  end;
+  Move(AConn.AccumBuf[AConsumed], AConn.AccumBuf[0],
+    AConn.AccumLen - AConsumed);
+  Dec(AConn.AccumLen, AConsumed);
+end;
+
 procedure TProtocolDispatcher.Dispatch(AConn: Pointer;
   const AConfig: TDispatchConfig);
 var
@@ -264,11 +297,7 @@ begin
        LConn.RemoteAddr, ACtx.Config^.TrustedProxies) then
   begin
     if LPPConsumed > 0 then
-    begin
-      Dec(LConn.AccumLen, LPPConsumed);
-      if LConn.AccumLen > 0 then
-        Move(LConn.AccumBuf[LPPConsumed], LConn.AccumBuf[0], LConn.AccumLen);
-    end;
+      _CompactAccum(LConn, LPPConsumed);
     if LPPAddr <> '' then
       LConn.RemoteAddr := LPPAddr + ':' + IntToStr(LPPPort);
     LConn.PPParsed := True;
@@ -476,10 +505,7 @@ begin
   end;
 
   ACtx.Req.RemoteAddr := LConn.RemoteAddr;
-  if LConn.AccumLen > ACtx.Consumed then
-    Move(LConn.AccumBuf[ACtx.Consumed], LConn.AccumBuf[0],
-      LConn.AccumLen - ACtx.Consumed);
-  LConn.AccumLen := LConn.AccumLen - ACtx.Consumed;
+  _CompactAccum(LConn, ACtx.Consumed);
 end;
 
 // ---------------------------------------------------------------------------
@@ -521,10 +547,7 @@ begin
   ACtx.Req.RemoteAddr := LConn.RemoteAddr;
   ACtx.Req.Headers := nil;  // lazy — materialized on demand
 
-  if LConn.AccumLen > ACtx.Consumed then
-    Move(LConn.AccumBuf[ACtx.Consumed], LConn.AccumBuf[0],
-      LConn.AccumLen - ACtx.Consumed);
-  LConn.AccumLen := LConn.AccumLen - ACtx.Consumed;
+  _CompactAccum(LConn, ACtx.Consumed);
   LConn.KeepAlive := ACtx.Req.KeepAlive;
 end;
 
