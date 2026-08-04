@@ -87,10 +87,12 @@ type
     FTrustedProxies: TArray<string>;
     FIOBackend: IIOBackend;
     FBackendName: string;
+    FHeartbeatMs: Integer;
     FDispatcher: TProtocolDispatcher;
     FBufferPool: IBufferPool;
     FSSLProvider: ISSLProvider;
 
+    procedure _EmitHeartbeat;
     procedure SetSyncDispatch(AValue: Boolean);
     procedure SetFastPath(AValue: Boolean);
     function  GetMaxConnections: Integer;
@@ -189,6 +191,9 @@ type
     // the logs to one running io_uring. Logged at Listen() and readable here
     // for a /health or metrics endpoint.
     property BackendName: string read FBackendName;
+    // Interval of the periodic [health] line (ms). 0 disables it.
+    // Default CDefaultHeartbeatMs (60s). Must be set before Listen().
+    property HeartbeatMs: Integer read FHeartbeatMs write FHeartbeatMs;
     // Optional log callback. When assigned, all internal errors are routed here.
     // When nil (default), errors are written to ErrOutput.
     property OnLog: TOnPoseidonLog read FOnLog write FOnLog;
@@ -311,6 +316,11 @@ const
   // min workers (4–16) and grow here only when all workers are busy.
   // 200 × 8MB stack = 1.6GB — well within safe limits.
   CDefaultMaxWorkers = 200;
+  // One health line per minute. Cheap enough to leave on by default (it reads
+  // counters that already exist) and the trend it exposes is the difference
+  // between diagnosing a saturation slide and guessing at it. Set
+  // HeartbeatMs := 0 to silence.
+  CDefaultHeartbeatMs = 60000;
   // Workers above MinWorkerCount self-terminate after this many ms idle.
   CWorkerIdleTimeoutMs = 30000;
   CDefaultIdleTimeoutMs = 10000;
@@ -1386,6 +1396,7 @@ begin
   FConnManager := TConnectionManager.Create;
   FSSLManager := TSSLManager.Create(FSSLProvider);
   FIdleTimeoutMs := CDefaultIdleTimeoutMs;
+  FHeartbeatMs := CDefaultHeartbeatMs;
   FMaxRequestSize := CMaxRequestSize;
   FMaxHeaderSize := CDefaultMaxHeaderSize;
   FDrainTimeoutMs := CDefaultDrainTimeoutMs;
@@ -1543,6 +1554,22 @@ end;
 //      / _CloseConn — all IO operations delegated to FIOBackend.
 // ===========================================================================
 
+// Periodic health line. Every value here is already tracked for other reasons,
+// so this adds nothing to the request path — it only makes the trend visible.
+// A server that logs only at startup leaves operators with no way to tell a
+// crash from a slow slide into saturation: worker pool growth, connection
+// build-up and in-flight backlog are exactly what precede one.
+procedure TPoseidonNativeServer._EmitHeartbeat;
+begin
+  _Log(llInfo, Format(
+    '[health] conns=%d inflight=%d workers_active=%d workers_idle=%d backend=%s',
+    [FConnManager.Count,
+     TInterlocked.Read(FInFlightCount),
+     GetWorkerActiveCount,
+     GetWorkerIdleCount,
+     FBackendName]));
+end;
+
 procedure TPoseidonNativeServer.Listen(const AHost: string; APort: Integer;
   AOnRequest: TOnNativeRequest; AOnListen: TProc);
 var
@@ -1627,6 +1654,8 @@ begin
   FIdleSweep.IdleTimeoutMs := FIdleTimeoutMs;
   FIdleSweep.OnLog := FOnLog;
   FIdleSweep.OnForceClose := _CloseConn;  // #224 mitigation — see IdleSweep.pas
+  FIdleSweep.HeartbeatMs := FHeartbeatMs;
+  FIdleSweep.OnHeartbeat := _EmitHeartbeat;
   FIdleSweep.Start;
 end;
 

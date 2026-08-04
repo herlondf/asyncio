@@ -34,6 +34,8 @@ type
     FIOBackend: IIOBackend;
     FOnLog: TOnPoseidonLog;
     FOnForceClose: TProc<Pointer>;
+    FOnHeartbeat: TProc;
+    FHeartbeatMs: Integer;
     FActive: PBoolean;
     procedure SweepLoop;
   public
@@ -52,6 +54,12 @@ type
     // (idempotent: safe even if the original shutdown's completion arrives
     // concurrently), not just IIOBackend.SocketClose.
     property OnForceClose: TProc<Pointer> read FOnForceClose write FOnForceClose;
+    // Periodic health tick. Rides this thread instead of spawning another: it
+    // already wakes once a second, and a server that produced no output between
+    // startup and a crash gave operators nothing to correlate. Set
+    // HeartbeatMs = 0 to silence it.
+    property OnHeartbeat: TProc read FOnHeartbeat write FOnHeartbeat;
+    property HeartbeatMs: Integer read FHeartbeatMs write FHeartbeatMs;
   end;
 
 implementation
@@ -110,11 +118,23 @@ var
   LNowTick: UInt64;
   LDiff:    UInt64;
   LIdle:    Int64;
+  LLastBeat: UInt64;
 begin
+  LLastBeat := TThread.GetTickCount64;
   while FActive^ do
   begin
     FStopEvent.WaitFor(CSweepIntervalMs);
     if not FActive^ then Break;
+
+    if (FHeartbeatMs > 0) and Assigned(FOnHeartbeat) and
+       (TThread.GetTickCount64 - LLastBeat >= UInt64(FHeartbeatMs)) then
+    begin
+      LLastBeat := TThread.GetTickCount64;
+      // Never let a logging failure kill the sweep — the sweep is what stops
+      // fds from leaking.
+      try FOnHeartbeat(); except on E: Exception do; end;
+    end;
+
     if FIdleTimeoutMs <= 0 then Continue;
 
     LSnap := FConnManager.Snapshot;
