@@ -1,4 +1,4 @@
-﻿unit Poseidon.Tests.Text;
+unit Poseidon.Tests.Text;
 
 // DUnitX unit tests for Poseidon.Text (PoseidonUTF8Bytes).
 //

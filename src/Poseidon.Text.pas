@@ -1,4 +1,4 @@
-﻿unit Poseidon.Text;
+unit Poseidon.Text;
 
 // Fast UTF-16 -> UTF-8 conversion for the response hot path.
 //

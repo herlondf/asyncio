@@ -1,4 +1,4 @@
-﻿unit Poseidon.Net.HttpServer;
+unit Poseidon.Net.HttpServer;
 
 // Native HTTP/1.1 server.
 // Windows: IOCP — WSARecv + single WSASend per response.

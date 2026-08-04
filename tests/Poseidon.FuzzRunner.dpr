@@ -1,4 +1,4 @@
-﻿program Poseidon.FuzzRunner;
+program Poseidon.FuzzRunner;
 
 // Dedicated fuzzing runner — the pure parsing surfaces only (HTTP/1, HPACK,
 // WebSocket) plus the deterministic HPACK invariant guards. No sockets, no

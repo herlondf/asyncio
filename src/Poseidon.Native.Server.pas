@@ -1,4 +1,4 @@
-﻿unit Poseidon.Native.Server;
+unit Poseidon.Native.Server;
 
 // TPoseidonServer — instance-based native API.
 //
