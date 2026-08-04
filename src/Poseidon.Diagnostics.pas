@@ -1,0 +1,213 @@
+unit Poseidon.Diagnostics;
+
+// Crash diagnostics — turns a fatal signal into a usable report instead of a
+// bare address.
+//
+// WHY: without this, a heap corruption in a long-running server surfaces on
+// Linux as nothing but glibc's own line plus the RTL's
+//
+//   malloc(): unaligned tcache chunk detected
+//   Runtime error 232 at 000000000048A2C5
+//
+// (232 = "Fatal signal raised on a non-Delphi thread"). That address alone is
+// useless without the exact binary, and the offending thread is not
+// identified. glibc calls abort() the moment it detects corrupted heap
+// metadata, so a backtrace taken from the SIGABRT handler points straight at
+// the malloc/free call chain that tripped it.
+//
+// ASYNC-SIGNAL SAFETY: the handler must not allocate — the heap is exactly
+// what is already broken when SIGABRT arrives. So it only calls write(2),
+// backtrace(3) and backtrace_symbols_fd(3). Everything it prints is a literal
+// or is formatted into a stack buffer; there is no string type in the path
+// (passing a literal to a `string`/`RawByteString` parameter can allocate).
+// backtrace_symbols_fd is specified as not calling malloc — unlike
+// backtrace_symbols, which does and must never be used here.
+//
+// After reporting, the default disposition is restored and the signal is
+// re-raised, so the process still dies with the original signal and the kernel
+// can still write a core dump. Nothing is swallowed.
+//
+// For readable frames the binary needs symbols: link with -g (dcclinux64 keeps
+// them by default) and do NOT strip. Addresses still print without symbols.
+//
+// Usage:
+//   TPoseidonDiagnostics.InstallCrashHandler;   // once, before Listen
+//
+// Windows: no-op (the RTL already reports faults with an address, and WER
+// captures the rest).
+
+interface
+
+type
+  TPoseidonDiagnostics = class
+  public
+    // Installs handlers for SIGSEGV/SIGABRT/SIGBUS/SIGFPE/SIGILL. Idempotent.
+    // No-op on Windows.
+    class procedure InstallCrashHandler; static;
+    // True once InstallCrashHandler has run successfully.
+    class function CrashHandlerInstalled: Boolean; static;
+  end;
+
+implementation
+
+{$IFNDEF MSWINDOWS}
+
+uses
+  {$IFDEF FPC}
+  syncobjs,
+  Poseidon.Compat.Posix;
+  {$ELSE}
+  System.SyncObjs,
+  Posix.Signal,
+  Posix.Unistd;
+  {$ENDIF}
+
+const
+  CMaxFrames = 64;
+  CStdErr = 2;
+  // x86-64 syscall number. glibc only exposes gettid() as a function from
+  // 2.30 on, and Poseidon targets Linux x86-64 only, so the raw syscall is
+  // both safer across base images and async-signal-safe.
+  CSysGetTid = 186;
+
+function backtrace(ABuffer: PPointer; ASize: Integer): Integer; cdecl;
+  external 'libc.so.6' name 'backtrace';
+procedure backtrace_symbols_fd(ABuffer: PPointer; ASize: Integer;
+  AFd: Integer); cdecl;
+  external 'libc.so.6' name 'backtrace_symbols_fd';
+function _syscall(ANum: NativeInt): NativeInt; cdecl varargs;
+  external 'libc.so.6' name 'syscall';
+
+var
+  GInstalled: Integer = 0;
+  // Pre-touched at install time so the first backtrace() inside the handler
+  // cannot be the one that lazily loads libgcc's unwinder (which allocates).
+  GWarmup: array[0..CMaxFrames - 1] of Pointer;
+
+procedure _Emit(AMsg: PAnsiChar);
+var
+  LLen: Integer;
+begin
+  if AMsg = nil then Exit;
+  LLen := 0;
+  while AMsg[LLen] <> #0 do Inc(LLen);
+  if LLen > 0 then
+    __write(CStdErr, AMsg, LLen);
+end;
+
+// Unsigned/signed to decimal in a stack buffer. IntToStr allocates.
+procedure _EmitInt(AValue: Int64);
+var
+  LBuf: array[0..23] of AnsiChar;
+  LPos: Integer;
+  LNeg: Boolean;
+begin
+  LNeg := AValue < 0;
+  if LNeg then AValue := -AValue;
+  LPos := High(LBuf);
+  if AValue = 0 then
+  begin
+    LBuf[LPos] := '0';
+    Dec(LPos);
+  end
+  else
+    while AValue > 0 do
+    begin
+      LBuf[LPos] := AnsiChar(Ord('0') + (AValue mod 10));
+      AValue := AValue div 10;
+      Dec(LPos);
+    end;
+  if LNeg then
+  begin
+    LBuf[LPos] := '-';
+    Dec(LPos);
+  end;
+  __write(CStdErr, @LBuf[LPos + 1], High(LBuf) - LPos);
+end;
+
+// Returns a pointer to a literal — no allocation, unlike a string result.
+function _SignalName(ASigNum: Integer): PAnsiChar;
+begin
+  if ASigNum = SIGSEGV then
+    Result := 'SIGSEGV (invalid memory access)'
+  else if ASigNum = SIGABRT then
+    Result := 'SIGABRT (abort - usually glibc heap corruption)'
+  else if ASigNum = SIGBUS then
+    Result := 'SIGBUS (bad memory alignment/access)'
+  else if ASigNum = SIGFPE then
+    Result := 'SIGFPE (arithmetic fault)'
+  else if ASigNum = SIGILL then
+    Result := 'SIGILL (illegal instruction)'
+  else
+    Result := 'unknown signal';
+end;
+
+procedure _CrashHandler(ASigNum: Integer); cdecl;
+var
+  LFrames: array[0..CMaxFrames - 1] of Pointer;
+  LCount: Integer;
+begin
+  _Emit(#10'=== POSEIDON CRASH REPORT ==='#10);
+  _Emit('signal : ');
+  _EmitInt(ASigNum);
+  _Emit(' - ');
+  _Emit(_SignalName(ASigNum));
+  _Emit(#10'tid    : ');
+  _EmitInt(_syscall(CSysGetTid));
+  _Emit(#10'frames :'#10);
+
+  LCount := backtrace(@LFrames[0], CMaxFrames);
+  if LCount > 0 then
+    backtrace_symbols_fd(@LFrames[0], LCount, CStdErr)
+  else
+    _Emit('  <backtrace unavailable>'#10);
+
+  _Emit('=== END CRASH REPORT ==='#10);
+
+  // Restore the default disposition and re-raise: the process must still die
+  // with the original signal so a core dump can still be produced.
+  signal(ASigNum, TSignalHandler(SIG_DFL));
+  __raise(ASigNum);
+end;
+
+class procedure TPoseidonDiagnostics.InstallCrashHandler;
+var
+  LSA: sigaction_t;
+begin
+  if TInterlocked.CompareExchange(GInstalled, 1, 0) <> 0 then Exit;
+
+  // Load the unwinder NOW, while the heap is still healthy.
+  backtrace(@GWarmup[0], CMaxFrames);
+
+  FillChar(LSA, SizeOf(LSA), 0);
+  LSA._u.sa_handler := @_CrashHandler;
+  LSA.sa_flags := 0;
+  sigemptyset(LSA.sa_mask);
+  sigaction(SIGSEGV, @LSA, nil);
+  sigaction(SIGABRT, @LSA, nil);
+  sigaction(SIGBUS,  @LSA, nil);
+  sigaction(SIGFPE,  @LSA, nil);
+  sigaction(SIGILL,  @LSA, nil);
+end;
+
+class function TPoseidonDiagnostics.CrashHandlerInstalled: Boolean;
+begin
+  Result := TInterlocked.CompareExchange(GInstalled, 0, 0) <> 0;
+end;
+
+{$ELSE}
+
+class procedure TPoseidonDiagnostics.InstallCrashHandler;
+begin
+  // Windows: the RTL already reports faults with an address and WER captures
+  // the rest.
+end;
+
+class function TPoseidonDiagnostics.CrashHandlerInstalled: Boolean;
+begin
+  Result := False;
+end;
+
+{$ENDIF}
+
+end.

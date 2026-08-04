@@ -1,4 +1,4 @@
-unit Poseidon.Net.HttpServer;
+﻿unit Poseidon.Net.HttpServer;
 
 // Native HTTP/1.1 server.
 // Windows: IOCP — WSARecv + single WSASend per response.
@@ -44,6 +44,7 @@ uses
   Poseidon.Net.ProxyProtocol,
   Poseidon.Net.IO,
   Poseidon.Net.Interfaces,
+  Poseidon.Diagnostics,
   Poseidon.Net.Pool.Workers;
 
 type
@@ -84,6 +85,7 @@ type
     FProxyProtocol: TProxyProtocolMode;
     FTrustedProxies: TArray<string>;
     FIOBackend: IIOBackend;
+    FBackendName: string;
     FDispatcher: TProtocolDispatcher;
     FBufferPool: IBufferPool;
     FSSLProvider: ISSLProvider;
@@ -180,6 +182,12 @@ type
     // (pool not created yet). Not persisted, not part of any wire protocol.
     property WorkerActiveCount: Integer read GetWorkerActiveCount;
     property WorkerIdleCount: Integer read GetWorkerIdleCount;
+    // which IO backend actually got selected. The io_uring -> epoll
+    // fallback is automatic and was previously invisible, so a container that
+    // silently ran epoll (seccomp blocks io_uring_setup) looked identical in
+    // the logs to one running io_uring. Logged at Listen() and readable here
+    // for a /health or metrics endpoint.
+    property BackendName: string read FBackendName;
     // Optional log callback. When assigned, all internal errors are routed here.
     // When nil (default), errors are written to ErrOutput.
     property OnLog: TOnPoseidonLog read FOnLog write FOnLog;
@@ -1425,22 +1433,36 @@ begin
   {$IFDEF FORCE_RIO}
   try
     FIOBackend := TRIOBackend.Create;
+    FBackendName := 'RIO';
   except
     on ENotSupportedException do
+    begin
       FIOBackend := TIOCPBackend.Create;
+      FBackendName := 'IOCP (RIO unavailable)';
+    end;
   end;
   {$ELSE}
   FIOBackend := TIOCPBackend.Create;
+  FBackendName := 'IOCP';
   {$ENDIF}
 {$ELSE}
   {$IFDEF FORCE_EPOLL}
   FIOBackend := TEpollBackend.Create;
+  FBackendName := 'epoll (FORCE_EPOLL)';
   {$ELSE}
   try
     FIOBackend := TIOUringBackend.Create;
+    FBackendName := 'io_uring';
   except
     on ENotSupportedException do
+    begin
+      // the fallback used to be silent, so a container whose seccomp
+      // profile blocks io_uring_setup (the Docker/ECS default -> EPERM) ran
+      // the epoll backend with no way to tell from the logs. Record it and
+      // log it at startup.
       FIOBackend := TEpollBackend.Create;
+      FBackendName := 'epoll (io_uring unavailable)';
+    end;
   end;
   {$ENDIF}
 {$ENDIF}
@@ -1527,6 +1549,7 @@ var
   LMinReq:     Integer;
   LMaxReq:     Integer;
   LAcceptN:    Integer;
+  LDispatchMode: string;
 begin
   if FActive then
     raise Exception.Create('TPoseidonNativeServer: already listening');
@@ -1566,6 +1589,26 @@ begin
   if LMaxReq <= 0 then LMaxReq := CDefaultMaxWorkers;  // default: 200
   FRequestPool := TElasticWorkerPool.Create(LMinReq, LMaxReq,
                     CWorkerIdleTimeoutMs);
+
+  // a fatal signal (notably SIGABRT from glibc on heap corruption) used
+  // to print only 'Runtime error 232 at <addr>', which is unusable without the
+  // exact binary. Install the backtrace handler before any traffic arrives.
+  TPoseidonDiagnostics.InstallCrashHandler;
+
+  // record the effective runtime shape. The io_uring -> epoll fallback
+  // is silent, and the worker counts derive from the cgroup CPU quota, so
+  // without this line there is no way to tell from a container log what the
+  // server actually decided to run.
+  if FSyncDispatch then
+    LDispatchMode := 'sync-inline'
+  else
+    LDispatchMode := 'worker-pool';
+  _Log(llInfo, Format(
+    '[startup] backend=%s io_workers=%d accept_threads=%d ' +
+    'req_pool=%d..%d dispatch=%s idle_timeout=%dms crash_handler=%s',
+    [FBackendName, LIOWorkers, LAcceptN, LMinReq, LMaxReq, LDispatchMode,
+     FIdleTimeoutMs,
+     BoolToStr(TPoseidonDiagnostics.CrashHandlerInstalled, True)]));
 
   // Inline dispatch (SyncDispatch) lets the io_uring backend batch SQE submits.
   FIOBackend.SetInlineDispatch(FSyncDispatch);
