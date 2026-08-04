@@ -108,6 +108,9 @@ type
     // dispatch would submit concurrent sends that interleave on the wire ->
     // 'bad record MAC'. Enforce ONE send in flight per connection; queue the
     // rest here (guarded by Lock) and submit on completion.
+    // SendBacklog/SendBacklogLen are shared with the epoll backend, which uses
+    // them for the same purpose (PendingSend <> nil means a send is in flight);
+    // SendInFlight itself is io_uring-only.
     SendInFlight: Boolean;
     SendBacklog: TBytes;
     SendBacklogLen: Integer;
