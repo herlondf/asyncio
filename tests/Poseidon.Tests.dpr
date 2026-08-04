@@ -12,6 +12,7 @@ uses
   Poseidon.Tests.HttpServer,
   Poseidon.Tests.HTTP2,
   Poseidon.Tests.Security,
+  Poseidon.Tests.Text,
   Poseidon.Tests.BufferPool,
   Poseidon.Tests.HTTP1Parser,
   Poseidon.Tests.ResponseBuilder,

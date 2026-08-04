@@ -169,13 +169,14 @@ uses
   {$IFDEF FPC}
   Classes,
   Poseidon.Compat,
-  Poseidon.Compat.ZLib;
+  Poseidon.Compat.ZLib,
   {$ELSE}
   System.Classes,
   System.NetEncoding,
   System.Hash,
-  System.ZLib;
+  System.ZLib,
   {$ENDIF}
+  Poseidon.Text;
 
 { TPoseidonWSConn }
 
@@ -225,7 +226,7 @@ begin
   end;
   if FDeflateEnabled then
   begin
-    LRaw := TEncoding.UTF8.GetBytes(AText);
+    LRaw := PoseidonUTF8Bytes(AText);
     LData := TWebSocketUtils.BuildFrame(OPCODE_TEXT, True, True,
                TWSDeflateUtils.Compress(LRaw));
   end
@@ -735,7 +736,7 @@ end;
 
 class function TWebSocketUtils.TextFrame(const AText: string): TBytes;
 begin
-  Result := TEncoding.UTF8.GetBytes(AText);
+  Result := PoseidonUTF8Bytes(AText);
   _PrependHeader(OPCODE_TEXT, True, Result);
 end;
 

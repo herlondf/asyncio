@@ -1,4 +1,4 @@
-unit Poseidon.Native.Server;
+﻿unit Poseidon.Native.Server;
 
 // TPoseidonServer — instance-based native API.
 //
@@ -168,6 +168,7 @@ uses
   {$ENDIF}
   Poseidon.Problem,
   Poseidon.Exception,
+  Poseidon.Text,
   Poseidon.GracefulReload;
 
 const
@@ -372,7 +373,7 @@ begin
       try
         AStatus := LProblem.Status;
         AContentType := 'application/problem+json';
-        ABody := TEncoding.UTF8.GetBytes(LJson.ToString);
+        ABody := PoseidonUTF8Bytes(LJson.ToString);
         AExtraHeaders := nil;
       finally
         LJson.Free;

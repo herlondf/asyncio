@@ -45,6 +45,7 @@ uses
   Poseidon.Net.IO,
   Poseidon.Net.Interfaces,
   Poseidon.Diagnostics,
+  Poseidon.Text,
   Poseidon.Net.Pool.Workers;
 
 type
@@ -668,12 +669,12 @@ end;
 procedure TPoseidonResponder.RespondText(AStatus: Integer;
   const AContentType, ABody: string);
 begin
-  Respond(AStatus, AContentType, TEncoding.UTF8.GetBytes(ABody), nil);
+  Respond(AStatus, AContentType, PoseidonUTF8Bytes(ABody), nil);
 end;
 
 procedure TPoseidonResponder.Fail(AStatus: Integer; const AMessage: string);
 begin
-  Respond(AStatus, 'text/plain', TEncoding.UTF8.GetBytes(AMessage), nil);
+  Respond(AStatus, 'text/plain', PoseidonUTF8Bytes(AMessage), nil);
 end;
 
 // GPoseidonDeferHook target — mints a responder bound to the connection being
