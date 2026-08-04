@@ -1,4 +1,4 @@
-program Poseidon.FuzzRunner;
+﻿program Poseidon.FuzzRunner;
 
 // Dedicated fuzzing runner — the pure parsing surfaces only (HTTP/1, HPACK,
 // WebSocket) plus the deterministic HPACK invariant guards. No sockets, no
@@ -14,12 +14,18 @@ uses
   DUnitX.TestFramework,
   DUnitX.Loggers.Console,
   DUnitX.Loggers.XML.NUnit,
+  Poseidon.Diagnostics,
   Poseidon.Tests.Fuzz;
 
 var
   LRunner:  ITestRunner;
   LResults: IRunResults;
 begin
+  // Um overflow de heap num parser nao aborta na hora: ele so estoura num
+  // malloc posterior, longe da causa. Com o handler instalado (e, no Linux,
+  // LD_PRELOAD=libc_malloc_debug.so.0 + glibc.malloc.check=3), o abort vem com
+  // backtrace apontando o parser que escreveu fora do bloco.
+  TPoseidonDiagnostics.InstallCrashHandler;
   try
     TDUnitX.CheckCommandLine;
     LRunner := TDUnitX.CreateRunner;

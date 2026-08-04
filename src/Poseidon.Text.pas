@@ -1,4 +1,4 @@
-unit Poseidon.Text;
+﻿unit Poseidon.Text;
 
 // Fast UTF-16 -> UTF-8 conversion for the response hot path.
 //
@@ -124,10 +124,15 @@ begin
   if LLen = 0 then
     Exit(nil);
 
+  // Deliberately sized at the worst case rather than from an exact pre-count.
+  // An exact-size pass was tried and measured (see utf8-encode-bench): the gain
+  // did not justify the failure mode. If a pre-count ever UNDER-counts by one
+  // byte, _Encode writes past the end of the block — which is precisely the
+  // heap-corruption class this server is being hardened against. Worst-case
+  // sizing cannot overflow by construction; shrinking afterwards does not
+  // reallocate, so the only cost is transient address space.
   SetLength(Result, LLen * CMaxBytesPerUnit);
   LWritten := _Encode(PChar(AValue), LLen, PByte(Result));
-  // Shrink in place — SetLength down never reallocates when the block already
-  // fits, so this costs nothing beyond updating the length header.
   SetLength(Result, LWritten);
 end;
 
