@@ -43,6 +43,7 @@ __recovery/
 # ─── AI assistant config (not for public consumption) ─────────────────────────
 CLAUDE.md
 AGENTS.md
+CHECKPOINT-SESSAO.md
 .claude/
 
 # ─── Build / test logs ────────────────────────────────────────────────────────
