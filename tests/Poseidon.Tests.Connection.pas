@@ -237,4 +237,11 @@ begin
     'Further extra Releases must still not double-destroy (count must stay 1)');
 end;
 
+initialization
+  // #243: without this explicit registration, this fixture's RTTI-based
+  // [TestFixture] attribute is never picked up by the DUnitX runner — none
+  // of its tests ran (silently missing from the "N cases, 0 failed" count)
+  // until this was added. Every other fixture in tests/ already does this.
+  TDUnitX.RegisterTestFixture(TConnectionRefCountTests);
+
 end.
