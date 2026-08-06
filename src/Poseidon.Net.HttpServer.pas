@@ -62,6 +62,9 @@ type
     FInFlightCount: Int64;
     FPadInflight: array[0..6] of Int64; // Cache-line padding — isolate FInFlightCount
     FIdleTimeoutMs: Integer;
+    // #233: watchdog for a handler stuck in normal operation (not just at
+    // shutdown, where FDrainTimeoutMs already covers this). 0 = disabled.
+    FMaxHandlerRunMs: Integer;
     FIdleSweep: TIdleSweepManager;
     FSSLManager: TSSLManager;
     FWSManager: TWebSocketManager;
@@ -166,6 +169,15 @@ type
     // Connections with no _ProcessRecv activity for IdleTimeoutMs are shut down.
     // Default 10000 (10s). Set to 0 to disable. Applies during SSL handshake too.
     property IdleTimeoutMs: Integer read FIdleTimeoutMs write FIdleTimeoutMs;
+    // #233: maximum time (ms) a request handler may run before the idle sweep
+    // treats it as stuck and force-closes the CLIENT connection (leak-and-close,
+    // same pattern already used for #177/#224 — the worker thread itself is
+    // never killed, only unblocked from the client's point of view). Checked
+    // against LastActivityTick, which is refreshed when the worker actually
+    // starts the dispatch. Default 0 = disabled (opt-in: existing deployments
+    // keep today's behavior — a handler stuck in normal operation runs
+    // forever — unless this is set explicitly).
+    property MaxHandlerRunMs: Integer read FMaxHandlerRunMs write FMaxHandlerRunMs;
     // Connection limits delegated to TConnectionManager
     property MaxConnections: Integer read GetMaxConnections write SetMaxConnections;
     property MaxConnectionsPerIP: Integer read GetMaxConnectionsPerIP write SetMaxConnectionsPerIP;
@@ -1662,6 +1674,7 @@ begin
   // Idle sweep delegated to TIdleSweepManager
   FIdleSweep := TIdleSweepManager.Create(FConnManager, FIOBackend, @FActive);
   FIdleSweep.IdleTimeoutMs := FIdleTimeoutMs;
+  FIdleSweep.MaxHandlerRunMs := FMaxHandlerRunMs;
   FIdleSweep.OnLog := FOnLog;
   FIdleSweep.OnForceClose := _CloseConn;  // #224 mitigation — see IdleSweep.pas
   FIdleSweep.HeartbeatMs := FHeartbeatMs;

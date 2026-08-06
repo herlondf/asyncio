@@ -28,6 +28,8 @@ type
   TIdleSweepManager = class
   private
     FIdleTimeoutMs: Integer;
+    // #233: watchdog for a handler stuck in normal operation. 0 = disabled.
+    FMaxHandlerRunMs: Integer;
     FSweepThread: TThread;
     FStopEvent: TEvent;
     FConnManager: TConnectionManager;
@@ -47,6 +49,11 @@ type
     procedure Stop;
 
     property IdleTimeoutMs: Integer read FIdleTimeoutMs write FIdleTimeoutMs;
+    // #233: maximum time (ms) a handler may hold InFlightPool > 0 before the
+    // sweep treats it as stuck and force-closes the connection (leak the
+    // socket teardown to the worker's own eventual Release, never kill the
+    // thread). 0 = disabled.
+    property MaxHandlerRunMs: Integer read FMaxHandlerRunMs write FMaxHandlerRunMs;
     property OnLog: TOnPoseidonLog read FOnLog write FOnLog;
     // #224 mitigation: called instead of ShutdownConn when a connection was
     // already shutdown-requested on an earlier sweep and is still open past
@@ -135,7 +142,7 @@ begin
       try FOnHeartbeat(); except on E: Exception do; end;
     end;
 
-    if FIdleTimeoutMs <= 0 then Continue;
+    if (FIdleTimeoutMs <= 0) and (FMaxHandlerRunMs <= 0) then Continue;
 
     LSnap := FConnManager.Snapshot;
     LNowTick := TThread.GetTickCount64;
@@ -143,13 +150,34 @@ begin
     begin
       LConn := TNativeConn(LSnap[I]);
       try
-        // Skip connections currently being handled by the elastic pool
-        if TInterlocked.Add(LConn.InFlightPool, 0) > 0 then Continue;
         LDiff := LNowTick - LConn.LastActivityTick;
         if LDiff > UInt64(MaxInt) then
           LIdle := MaxInt
         else
           LIdle := Integer(LDiff);
+
+        if TInterlocked.Add(LConn.InFlightPool, 0) > 0 then
+        begin
+          // #233: a handler is running (or queued) for this connection, so
+          // the idle-close checks below never apply here — LastActivityTick
+          // keeps getting refreshed at dispatch time, not just on recv.
+          // Without this, a handler stuck in normal operation (not just at
+          // shutdown, where FDrainTimeoutMs already covers this) ran forever
+          // with no defense at all (#233).
+          if (FMaxHandlerRunMs > 0) and (LIdle > FMaxHandlerRunMs) then
+          begin
+            if Assigned(FOnLog) then
+              FOnLog(llWarning, '[sweep] #233 handler stuck: ' +
+                LConn.RemoteAddr + ' running=' + IntToStr(LIdle) +
+                'ms (limit ' + IntToStr(FMaxHandlerRunMs) + 'ms) — closing ' +
+                'connection, NOT killing the worker thread');
+            if Assigned(FOnForceClose) then
+              FOnForceClose(LSnap[I]);
+          end;
+          Continue;
+        end;
+
+        if FIdleTimeoutMs <= 0 then Continue;
         if LIdle > FIdleTimeoutMs then
         begin
           // #224 mitigation: ShutdownConn only sends shutdown(); the fd is

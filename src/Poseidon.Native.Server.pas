@@ -70,6 +70,8 @@ type
     function GetWorkerIdleCount: Integer;
     function GetIdleTimeoutMs: Integer;
     procedure SetIdleTimeoutMs(AValue: Integer);
+    function GetMaxHandlerRunMs: Integer;
+    procedure SetMaxHandlerRunMs(AValue: Integer);
     function GetMaxRequestSize: Integer;
     procedure SetMaxRequestSize(AValue: Integer);
     function GetMaxHeaderSize: Integer;
@@ -144,6 +146,10 @@ type
     property WorkerActiveCount: Integer read GetWorkerActiveCount;
     property WorkerIdleCount: Integer read GetWorkerIdleCount;
     property IdleTimeoutMs: Integer read GetIdleTimeoutMs write SetIdleTimeoutMs;
+    // #233: maximum time (ms) a request handler may run before it is treated
+    // as stuck and its connection is force-closed (worker thread itself is
+    // never killed). Default 0 = disabled — opt-in.
+    property MaxHandlerRunMs: Integer read GetMaxHandlerRunMs write SetMaxHandlerRunMs;
     property MaxRequestSize: Integer read GetMaxRequestSize write SetMaxRequestSize;
     property MaxHeaderSize: Integer read GetMaxHeaderSize write SetMaxHeaderSize;
     property DrainTimeoutMs: Integer read GetDrainTimeoutMs write SetDrainTimeoutMs;
@@ -642,6 +648,12 @@ begin Result := FServer.IdleTimeoutMs; end;
 
 procedure TPoseidonServer.SetIdleTimeoutMs(AValue: Integer);
 begin FServer.IdleTimeoutMs := AValue; end;
+
+function TPoseidonServer.GetMaxHandlerRunMs: Integer;
+begin Result := FServer.MaxHandlerRunMs; end;
+
+procedure TPoseidonServer.SetMaxHandlerRunMs(AValue: Integer);
+begin FServer.MaxHandlerRunMs := AValue; end;
 
 function TPoseidonServer.GetMaxRequestSize: Integer;
 begin Result := FServer.MaxRequestSize; end;
