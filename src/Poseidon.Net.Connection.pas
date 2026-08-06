@@ -146,9 +146,24 @@ begin
 end;
 
 procedure TNativeConn.Release;
+var
+  LNew: Integer;
 begin
-  if TInterlocked.Decrement(FRefCount) = 0 then
-    Self.Free;
+  LNew := TInterlocked.Decrement(FRefCount);
+  if LNew = 0 then
+    Self.Free
+  else if LNew < 0 then
+    // #234: more Release than AddRef/Create ever handed out somewhere in the
+    // codebase -- another caller already dropped the count to zero and this
+    // object may already be mid-Destroy/freed. Do NOT touch any field of Self
+    // here (that would itself be a use-after-free read) and do NOT call
+    // Self.Free (that would double-free -- the corruption class under
+    // investigation). Logging only the raw pointer + refcount turns an
+    // unattributable, delayed glibc "double free or corruption" abort into an
+    // immediate, precise signal that a specific Release call was extra.
+    Writeln(ErrOutput, '[poseidon][FATAL] TNativeConn.Release: refcount ' +
+      'underflow to ' + IntToStr(LNew) + ' at 0x' +
+      IntToHex(NativeUInt(Pointer(Self)), SizeOf(Pointer) * 2));
 end;
 
 constructor TNativeConn.Create(ASocket: NativeUInt; const AAddr: string);

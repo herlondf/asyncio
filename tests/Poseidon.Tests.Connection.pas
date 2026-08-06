@@ -26,6 +26,7 @@ type
     [Test] procedure InFlightPool_InitiallyZero;
     [Test] procedure InFlightPool_IncrementDecrement;
     [Test] procedure Destroy_AccumBuf_ReleasedToPool;
+    [Test] procedure Release_PastZero_DoesNotDoubleDestroy;
   end;
   {$M-}
 
@@ -60,6 +61,30 @@ destructor TTestableConn.Destroy;
 begin
   if FDestroyedFlag <> nil then
     FDestroyedFlag^ := True;
+  inherited;
+end;
+
+// Counts Destroy calls (vs. TTestableConn's one-shot flag) so a test can prove
+// an extra Release past zero does NOT trigger a second Destroy (#234).
+type
+  TCountingTestableConn = class(TNativeConn)
+  private
+    FDestroyedCount: PInteger;
+  public
+    constructor Create(ADestroyedCount: PInteger);
+    destructor Destroy; override;
+  end;
+
+constructor TCountingTestableConn.Create(ADestroyedCount: PInteger);
+begin
+  inherited Create(0, '127.0.0.1:0');
+  FDestroyedCount := ADestroyedCount;
+end;
+
+destructor TCountingTestableConn.Destroy;
+begin
+  if FDestroyedCount <> nil then
+    Inc(FDestroyedCount^);
   inherited;
 end;
 
@@ -188,6 +213,28 @@ begin
   Assert.IsTrue(Length(LConn.AccumBuf) > 0, 'AccumBuf must have non-zero length');
   LConn.Release;
   Assert.IsTrue(LDestroyed, 'Destroy must have run — AccumBuf returned to pool');
+end;
+
+procedure TConnectionRefCountTests.Release_PastZero_DoesNotDoubleDestroy;
+// #234: an extra Release beyond what Create/AddRef ever handed out (the
+// refcount-underflow guard added to TNativeConn.Release) must log and return
+// instead of calling Self.Free a second time. Proven via an external counter
+// (not a field read on the already-freed instance) — Destroy must run exactly
+// once, never twice, no matter how many extra Releases follow.
+var
+  LDestroyedCount: Integer;
+  LConn: TCountingTestableConn;
+begin
+  LDestroyedCount := 0;
+  LConn := TCountingTestableConn.Create(@LDestroyedCount);
+  LConn.Release;  // ref 1 -> 0: Destroy #1
+  Assert.AreEqual(1, LDestroyedCount, 'First Release must trigger exactly one Destroy');
+  LConn.Release;  // extra Release past zero: must NOT double-free
+  Assert.AreEqual(1, LDestroyedCount,
+    'Extra Release past zero must not double-destroy (count must stay 1)');
+  LConn.Release;  // a second extra Release: still must not double-free
+  Assert.AreEqual(1, LDestroyedCount,
+    'Further extra Releases must still not double-destroy (count must stay 1)');
 end;
 
 end.
