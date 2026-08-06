@@ -23,6 +23,7 @@ uses
   Poseidon.Tests.Dispatcher,
   Poseidon.Tests.Connection,
   Poseidon.Tests.IdleSweep,
+  Poseidon.Tests.Heartbeat,
   Poseidon.Tests.DeferredResponse,
   Poseidon.Tests.Workers,
   Poseidon.Tests.Problem,

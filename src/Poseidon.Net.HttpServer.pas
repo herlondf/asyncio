@@ -96,6 +96,7 @@ type
     FSSLProvider: ISSLProvider;
 
     procedure _EmitHeartbeat;
+    function  _GetProcessRSSKB: Int64;
     procedure SetSyncDispatch(AValue: Boolean);
     procedure SetFastPath(AValue: Boolean);
     function  GetMaxConnections: Integer;
@@ -290,6 +291,8 @@ implementation
 // This is the only {$IFDEF} remaining in HttpServer — used solely to select the backend.
 {$IFDEF MSWINDOWS}
 uses
+  Winapi.Windows,
+  Winapi.PsAPI,
   Poseidon.Net.IO.RIO,
   Poseidon.Net.IO.IOCP,
   Poseidon.Net.SSL,
@@ -1566,11 +1569,66 @@ end;
 //      / _CloseConn — all IO operations delegated to FIOBackend.
 // ===========================================================================
 
+// Current process resident set size, in KB. -1 if it could not be read.
+// Read fresh every call (no caching) — this is the periodic heartbeat, at
+// most once every few seconds, not a hot-path call.
+function TPoseidonNativeServer._GetProcessRSSKB: Int64;
+{$IFDEF MSWINDOWS}
+var
+  LCounters: TProcessMemoryCounters;
+begin
+  FillChar(LCounters, SizeOf(LCounters), 0);
+  LCounters.cb := SizeOf(LCounters);
+  if GetProcessMemoryInfo(GetCurrentProcess, @LCounters, SizeOf(LCounters)) then
+    Result := LCounters.WorkingSetSize div 1024
+  else
+    Result := -1;
+end;
+{$ELSE}
+var
+  LFile: TextFile;
+  LLine: string;
+  LSpacePos: Integer;
+begin
+  Result := -1;
+  AssignFile(LFile, '/proc/self/status');
+  try
+    try
+      Reset(LFile);
+    except
+      Exit;
+    end;
+    try
+      while not Eof(LFile) do
+      begin
+        ReadLn(LFile, LLine);
+        if LLine.StartsWith('VmRSS:') then
+        begin
+          LLine := Trim(Copy(LLine, Length('VmRSS:') + 1, MaxInt));
+          LSpacePos := Pos(' ', LLine);
+          if LSpacePos > 0 then LLine := Copy(LLine, 1, LSpacePos - 1);
+          Result := StrToInt64Def(LLine, -1);
+          Break;
+        end;
+      end;
+    finally
+      CloseFile(LFile);
+    end;
+  except
+    Result := -1;
+  end;
+end;
+{$ENDIF}
+
 // Periodic health line. Every value here is already tracked for other reasons,
 // so this adds nothing to the request path — it only makes the trend visible.
 // A server that logs only at startup leaves operators with no way to tell a
 // crash from a slow slide into saturation: worker pool growth, connection
-// build-up and in-flight backlog are exactly what precede one.
+// build-up and in-flight backlog are exactly what precede one. rss_kb closes
+// the gap this class of investigation kept hitting: correlating a specific
+// moment's conn/pool/inflight shape against actual memory used required an
+// external `docker stats` sample that was never at the same instant as the
+// log line — now it is the same line.
 procedure TPoseidonNativeServer._EmitHeartbeat;
 var
   LAlive: Integer;
@@ -1583,12 +1641,13 @@ begin
   LAlive := GetWorkerActiveCount;
   LIdle := GetWorkerIdleCount;
   _Log(llInfo, Format(
-    '[health] conns=%d inflight=%d pool=%d busy=%d idle=%d backend=%s',
+    '[health] conns=%d inflight=%d pool=%d busy=%d idle=%d rss_kb=%d backend=%s',
     [FConnManager.Count,
      TInterlocked.Read(FInFlightCount),
      LAlive,
      LAlive - LIdle,
      LIdle,
+     _GetProcessRSSKB,
      FBackendName]));
 end;
 

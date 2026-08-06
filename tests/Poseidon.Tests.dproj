@@ -60,6 +60,7 @@
     <DCCReference Include="Poseidon.Tests.Dispatcher.pas"/>
     <DCCReference Include="Poseidon.Tests.Connection.pas"/>
     <DCCReference Include="Poseidon.Tests.IdleSweep.pas"/>
+    <DCCReference Include="Poseidon.Tests.Heartbeat.pas"/>
     <DCCReference Include="Poseidon.Tests.Workers.pas"/>
     <DCCReference Include="Poseidon.Tests.Validation.pas"/>
     <DCCReference Include="Poseidon.Tests.Fuzz.pas"/>
