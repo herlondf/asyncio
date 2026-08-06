@@ -29,6 +29,7 @@ type
     [Test] procedure Shutdown_WaitsForRunning;
     [Test] procedure Post_ExceptionInWork_PoolSurvives;
     [Test] procedure Post_MaxWorkersReached_NoOverspawn;
+    [Test] procedure Post_AfterShutdown_RunsWorkSynchronously;
   end;
   {$M-}
 
@@ -285,6 +286,30 @@ begin
     end;
   finally
     LGate.Free;
+  end;
+end;
+
+procedure TElasticWorkerPoolTests.Post_AfterShutdown_RunsWorkSynchronously;
+// #235: a Post() call landing exactly in the race window after Shutdown()
+// flips FShutdown must run the closure synchronously (on the calling
+// thread) instead of silently dropping it. Dropping it would leak whatever
+// refcount/counter the caller already incremented BEFORE calling Post
+// (AddRef, InFlightPool, FInFlightCount in
+// TPoseidonNativeServer._DispatchAccumBuf) — the connection would never
+// reach refcount 0 again: no crash, just memory that never comes back.
+var
+  LPool: TElasticWorkerPool;
+  LRan:  Boolean;
+begin
+  LRan := False;
+  LPool := TElasticWorkerPool.Create(TEST_MIN_WORKERS, TEST_MAX_WORKERS, TEST_IDLE_TIMEOUT_MS);
+  try
+    LPool.Shutdown(2000);
+    LPool.Post(procedure begin LRan := True; end);
+    Assert.IsTrue(LRan,
+      'Post() after Shutdown() must run the closure synchronously, not drop it');
+  finally
+    LPool.Free;
   end;
 end;
 

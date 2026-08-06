@@ -380,7 +380,25 @@ begin
   // FActiveWorkers are only read here as a hint (shutdown flag + spawn
   // heuristic), so a locked read (LOCK XADD) is unnecessary — it just dirties
   // the cache line and ping-pongs it across IO threads on every Post.
-  if FShutdown <> 0 then Exit;
+  if FShutdown <> 0 then
+  begin
+    // A caller always pairs an AddRef (or equivalent counter Increment) with
+    // AWork BEFORE calling Post — the closure's own try/finally is what does
+    // the paired Release (see Shutdown()'s drain loop below, which runs
+    // already-queued closures synchronously for the exact same reason).
+    // A plain Exit here, dropping AWork silently, leaks that refcount/counter
+    // forever whenever a caller loses the race against Shutdown() flipping
+    // FShutdown between the caller's AddRef and this call — the connection
+    // never reaches refcount 0, no crash, just RAM that never comes back.
+    try
+      AWork();
+    except
+      on E: Exception do
+        Writeln(ErrOutput, '[pool.workers] WORKER_EX [', E.ClassName, ']: ',
+          E.Message);
+    end;
+    Exit;
+  end;
 
   LWrapper := TWorkWrapper.Create;
   LWrapper.Work := AWork;
