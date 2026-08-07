@@ -285,6 +285,12 @@ type
     property OnH2Push: TOnH2Push read GetOnH2Push write SetOnH2Push;
   end;
 
+// Releases this thread's cached defer banner string. threadvars of managed
+// types are never finalized by the RTL when a thread terminates -- call this
+// from a worker thread's own exit path (see TBufferPool.FlushThreadCache)
+// before it dies, or the cached string leaks for that thread's lifetime.
+procedure ResetThreadDeferVars;
+
 implementation
 
 // R-1: platform-specific IO backend (IOCP on Windows, epoll/io_uring on Linux).
@@ -552,6 +558,11 @@ threadvar
   GDeferSecure:    Boolean;
   GDeferBanner:    string;
   GDeferActive:    Boolean;   // set True by the hook when Defer() was called
+
+procedure ResetThreadDeferVars;
+begin
+  GDeferBanner := '';
+end;
 
 // Merge middleware-added headers (captured at Defer time) with the headers the
 // app passes to Respond. App values win on a case-insensitive key collision.

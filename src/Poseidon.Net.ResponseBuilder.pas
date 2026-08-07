@@ -73,6 +73,12 @@ function BuildHTTPResponseHeaders(
 // Use as initial value in the dispatch loop before calling the user handler.
 function DefaultErrorBody: TBytes;
 
+// Releases this thread's cached Date-header string. threadvars of managed
+// types are never finalized by the RTL when a thread terminates -- call this
+// from a worker thread's own exit path (see TBufferPool.FlushThreadCache)
+// before it dies, or the cached string leaks for that thread's lifetime.
+procedure ResetThreadDateCache;
+
 implementation
 
 uses
@@ -195,6 +201,12 @@ begin
     [CDays[DayOfWeek(LUtc)], LD, CMonths[LMo], LY, LH, LMi, LS]);
   GDateCacheTick := LNowTick;
   Result := GDateCacheStr;
+end;
+
+procedure ResetThreadDateCache;
+begin
+  GDateCacheStr := '';
+  GDateCacheTick := 0;
 end;
 
 // Builds the trailing header block (application-supplied Extra headers, opt-in

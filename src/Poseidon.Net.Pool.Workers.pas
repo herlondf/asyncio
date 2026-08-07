@@ -128,7 +128,9 @@ type
 implementation
 
 uses
-  Poseidon.Net.Pool.Buffer;
+  Poseidon.Net.Pool.Buffer,
+  Poseidon.Net.HttpServer,
+  Poseidon.Net.ResponseBuilder;
 
 { TElasticWorkerPool }
 
@@ -364,6 +366,8 @@ begin
     end;
   finally
     TBufferPool.FlushThreadCache;
+    ResetThreadDateCache;
+    ResetThreadDeferVars;
     if not LAlreadyDropped then
       TInterlocked.Decrement(FActiveWorkers);
   end;
