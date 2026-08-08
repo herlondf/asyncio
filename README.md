@@ -85,6 +85,31 @@ The I/O backend is selected **once** at startup, with automatic fallback: **IOCP
 
 ---
 
+## Performance vs. the Field
+
+Multi-framework comparison — mixed plaintext/JSON/large-JSON workload (40/30/30), `wrk -t4 -c200 -d300s`, local run under a 2 vCPU / 1 GB cgroup limit, both Poseidon perf fixes applied (#231 TCP_CORK, #232 cgroup-aware worker sizing):
+
+| Rank | Framework | Req/s | p99 latency |
+|---:|---|---:|---:|
+| 1 | uws | 54,223 | 6.40 ms |
+| **2** | **Poseidon v2** | **53,920** | 67.30 ms |
+| 3 | Actix | 52,708 | 7.03 ms |
+| 4 | Go Fiber | 38,110 | 68.71 ms |
+| 5 | mORMot2 | 33,372 | 46.99 ms |
+| 6 | nginx | 27,393 | 71.61 ms |
+| 7 | Kestrel | 23,785 | 54.12 ms |
+| 8 | Horse (Epoll) | 2,475 | 493.02 ms |
+
+Second of 8, ahead of every other Delphi/Pascal framework and every general-purpose framework except uws — and **21.8x Horse**. The p99 reflects the large-JSON slice of the mixed workload; uws/Actix trade feature surface for a flatter tail (see the matrix below). Full methodology lives in the separate `Benchmark` harness (pointers in [`docs/playbook/07-benchmarking`](docs/playbook/07-benchmarking)); this repo's own reproducible numbers are in [`samples/08-benchmark/`](samples/08-benchmark/).
+
+<p align="center">
+  <img src="docs/framework-features.svg" alt="Poseidon protocol/feature comparison against 7 other frameworks" width="880"/>
+</p>
+
+Every hot-path change is validated with a controlled before/after run before it merges — same binary, one change at a time. The 2026-08-07 parser/dispatcher pass (dropped a redundant allocation on the `Connection` header, skipped the upgrade-detection scan on non-upgrade GETs) measured **+1.7% throughput**, with every repetition on the "after" side beating every repetition on the "before" side.
+
+---
+
 ## Features
 
 **Engine** — HTTP/1.1 keep-alive · HTTP/2 (ALPN h2, h2c, server push, flow control) · WebSocket (RFC 6455, permessage-deflate) · HTTPS native OpenSSL (SNI, mTLS) · gzip + Brotli compression · Proxy Protocol v1/v2 · Graceful reload (PID file, SIGTERM, zero-downtime) · Windows 64-bit (IOCP/RIO) + Linux 64-bit (io_uring/epoll) · Delphi 11+ and Free Pascal 3.3.1

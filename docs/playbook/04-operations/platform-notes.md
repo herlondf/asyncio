@@ -63,3 +63,10 @@ byte-identical (all FPC support lives behind `{$IFDEF FPC}` + an FPC-only
 - **Gates:** `tests/fpc/build-server-fpc.ps1` (Windows) and
   `tests/fpc/build-linux-fpc.sh` (Linux) build the full closure and run a real
   HTTP-serve smoke.
+- **Crash handler not yet FPC-compatible:** `Poseidon.Diagnostics` (the Linux
+  SIGSEGV/SIGABRT handler, see [Crash diagnostics](crash-diagnostics.md))
+  fails to compile under FPC — `Poseidon.Compat.Posix.pas` is missing the
+  signal-number constants and the raw `raise`/`write` libc bindings that unit
+  expects. Confirmed 2026-08 while building an FPC/Linux benchmark harness.
+  Delphi/`dcclinux64` builds are unaffected. Until this is fixed upstream, an
+  FPC/Linux deployment runs **without** the crash handler installed.

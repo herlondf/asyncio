@@ -634,10 +634,23 @@ begin
     case LookupHeaderId(@ABuf[LLineStart], LColonPos - LLineStart) of
       hiConnection:
         begin
-          // M24: lower-case once (LValue already copied into AHeaders above).
-          LValue := LowerCase(LValue);
-          if Pos('keep-alive', LValue) > 0 then AKeepAlive := True;
-          if Pos('close',      LValue) > 0 then AKeepAlive := False;
+          // M25: byte-level case-fold scan instead of LowerCase(LValue) --
+          // avoids a second string allocation per request (LValue is already
+          // copied into AHeaders above; this only reads ABuf directly).
+          if LLineEnd - LValStart >= 10 then
+            for I := LValStart to LLineEnd - 10 do
+              if (ABuf[I]   or $20 = Ord('k')) and (ABuf[I+1] or $20 = Ord('e')) and
+                 (ABuf[I+2] or $20 = Ord('e')) and (ABuf[I+3] or $20 = Ord('p')) and
+                 (ABuf[I+4]       = Ord('-'))  and (ABuf[I+5] or $20 = Ord('a')) and
+                 (ABuf[I+6] or $20 = Ord('l')) and (ABuf[I+7] or $20 = Ord('i')) and
+                 (ABuf[I+8] or $20 = Ord('v')) and (ABuf[I+9] or $20 = Ord('e')) then
+              begin AKeepAlive := True; Break; end;
+          if LLineEnd - LValStart >= 5 then
+            for I := LValStart to LLineEnd - 5 do
+              if (ABuf[I] or $20 = Ord('c')) and (ABuf[I+1] or $20 = Ord('l')) and
+                 (ABuf[I+2] or $20 = Ord('o')) and (ABuf[I+3] or $20 = Ord('s')) and
+                 (ABuf[I+4] or $20 = Ord('e')) then
+              begin AKeepAlive := False; Break; end;
         end;
       hiContentLength:
         begin
@@ -959,10 +972,15 @@ end;
 
 function MaterializeHeaders(const ABuf: TBytes;
   AHdrStart, AHdrEnd: Integer): TArray<TPair<string,string>>;
+const
+  CInitialHeaderCount = 16;
 var
   I, LLineStart, LLineEnd, LColonPos, LValStart, LCount: Integer;
 begin
-  SetLength(Result, CMaxHeaderCount);
+  // Start small and grow geometrically instead of pre-allocating (and
+  // zeroing) CMaxHeaderCount pairs on every call, same pattern already used
+  // by ParseHTTP1Request for the same reason.
+  SetLength(Result, CInitialHeaderCount);
   LCount := 0;
   LLineStart := AHdrStart;
   while (LLineStart < AHdrEnd) and (LCount < CMaxHeaderCount) do
@@ -988,6 +1006,8 @@ begin
           ((GLUT[ABuf[LValStart]] and BF_OWS) <> 0) do
       Inc(LValStart);
 
+    if LCount = Length(Result) then
+      SetLength(Result, Length(Result) * 2);
     Result[LCount] := TPair<string,string>.Create(
       _FastBufToStr(ABuf, LLineStart, LColonPos - LLineStart),
       _FastBufToStr(ABuf, LValStart, LLineEnd - LValStart));

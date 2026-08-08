@@ -587,6 +587,11 @@ begin
       LConnection := ACtx.Req.Headers[I].Value;
   end;
 
+  // Neither branch below can match without an Upgrade header — skip the
+  // Connection-header case-fold scan for the common non-upgrade GET.
+  if LUpgrade = '' then
+    Exit;
+
   // RFC 6455 §4.2.1 / RFC 7230 §6.7 — the Connection header's token list MUST
   // include "Upgrade"; without it the request is not a valid upgrade.
   LHasUpgrade := Pos('upgrade', LowerCase(LConnection)) > 0;

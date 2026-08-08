@@ -3,6 +3,10 @@
 O que o Poseidon imprime quando o processo morre, e como transformar isso numa
 correção.
 
+> **Por enquanto, só Delphi/`dcclinux64`.** Sob FPC, `Poseidon.Diagnostics`
+> falha ao compilar — ver [Notas de plataforma](notas-de-plataforma.md#free-pascal--lazarus).
+> Um deploy FPC/Linux roda sem esse crash handler instalado.
+
 ## O problema que isso resolve
 
 Um servidor de longa duração que morre de corrupção de memória no Linux entrega,

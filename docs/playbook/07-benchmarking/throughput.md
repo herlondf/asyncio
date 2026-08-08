@@ -7,7 +7,28 @@ plus an HTML report with charts.
 
 For a full multi-framework comparison harness (Docker, k6, wrk, Grafana,
 Poseidon vs. Horse/other frameworks under realistic load), see the separate
-`Benchmark` repository — it is not part of this repo.
+`Benchmark` repository — it is not part of this repo. The [README](../../../README.md#performance-vs-the-field)
+carries the current 8-framework result table and a protocol/feature matrix
+(`docs/framework-features.svg`); update both together when the numbers change.
+
+## Validating hot-path changes: controlled before/after
+
+Any change to the parser/dispatcher/response-builder hot path is checked with
+a same-binary, one-variable-at-a-time comparison before it merges: build
+"before" (the pre-change source) and "after" side by side, run identical `wrk`
+parameters against both, and require every "after" repetition to beat every
+"before" repetition — not just the average — before calling it a real gain.
+Averages alone hide noise on shared hardware; non-overlapping ranges across
+several repetitions do not.
+
+Example (2026-08-07): dropping a redundant `LowerCase` allocation on the
+`Connection` header (`ParseHTTP1Request`) and skipping the upgrade-detection
+scan on non-upgrade GETs (`StepUpgradeDetection`) measured **+1.7%**
+throughput on a `/ping` endpoint under the default config (Full pipeline,
+async worker pool) — 3 reps each side, `wrk -t4 -c128 -d20s`, every "after" rep
+above every "before" rep. Functional correctness (keep-alive reuse,
+`Connection: close`, a real WebSocket upgrade handshake) was re-checked on the
+same binary before trusting the number.
 
 ## Running the sample
 

@@ -62,3 +62,11 @@ suporte a FPC fica atrás de `{$IFDEF FPC}` + a camada só-FPC `src/compat/`).
 - **Gates:** `tests/fpc/build-server-fpc.ps1` (Windows) e
   `tests/fpc/build-linux-fpc.sh` (Linux) buildam a clausura completa e rodam um
   smoke de serve HTTP real.
+- **Crash handler ainda nao compila sob FPC:** `Poseidon.Diagnostics` (o
+  handler de SIGSEGV/SIGABRT no Linux, ver
+  [Diagnostico de crash](diagnostico-de-crash.md)) falha ao compilar sob FPC —
+  `Poseidon.Compat.Posix.pas` esta sem as constantes de numero de sinal e os
+  bindings brutos de `raise`/`write` da libc que aquela unit espera.
+  Confirmado em 2026-08 ao construir um harness de benchmark FPC/Linux. Builds
+  Delphi/`dcclinux64` nao sao afetados. Ate isso ser corrigido a montante, um
+  deploy FPC/Linux roda **sem** o crash handler instalado.

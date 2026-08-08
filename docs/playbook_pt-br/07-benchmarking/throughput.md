@@ -7,7 +7,31 @@ keep-alive e nova-conexão-por-request e imprime uma tabela de latência
 
 Para um harness de comparação multi-framework completo (Docker, k6, wrk,
 Grafana, Poseidon vs. Horse/outros frameworks sob carga realista), veja o
-repositório separado `Benchmark` — ele não faz parte deste repositório.
+repositório separado `Benchmark` — ele não faz parte deste repositório. O
+[README](../../../README_pt-br.md#performance-vs-o-mercado) traz a tabela
+atual de resultados com os 8 frameworks e a matriz de protocolo/funcionalidades
+(`docs/framework-features_pt-br.svg`); atualize os dois juntos quando os
+números mudarem.
+
+## Validando mudancas no caminho quente: antes/depois controlado
+
+Toda mudanca no parser/dispatcher/response-builder e checada com uma
+comparacao antes/depois no mesmo binario, uma variavel por vez: builda
+"antes" (fonte pre-mudanca) e "depois" lado a lado, roda os mesmos parametros
+de `wrk` contra os dois, e exige que TODA repeticao do "depois" supere TODA
+repeticao do "antes" — nao so a media — antes de chamar de ganho real. Media
+sozinha esconde ruido em hardware compartilhado; faixas nao sobrepostas em
+varias repeticoes, nao.
+
+Exemplo (2026-08-07): remover uma alocacao redundante de `LowerCase` no
+header `Connection` (`ParseHTTP1Request`) e pular a varredura de deteccao de
+upgrade em GETs sem upgrade (`StepUpgradeDetection`) mediu **+1,7%** de
+throughput num endpoint `/ping` sob a config padrao (pipeline Full, worker
+pool async) — 3 repeticoes de cada lado, `wrk -t4 -c128 -d20s`, toda
+repeticao do "depois" acima de toda repeticao do "antes". A corretude
+funcional (reuso de keep-alive, `Connection: close`, um handshake real de
+upgrade WebSocket) foi reconferida no mesmo binario antes de confiar no
+numero.
 
 ## Executando o sample
 

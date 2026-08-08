@@ -85,6 +85,31 @@ O backend de I/O e selecionado **uma unica vez** na inicializacao, com fallback 
 
 ---
 
+## Performance vs. o Mercado
+
+Comparacao multi-framework — carga mista plaintext/JSON/JSON grande (40/30/30), `wrk -t4 -c200 -d300s`, rodada local sob limite de cgroup de 2 vCPU / 1 GB, com as duas correcoes de performance do Poseidon aplicadas (#231 TCP_CORK, #232 dimensionamento de workers ciente de cgroup):
+
+| Posicao | Framework | Req/s | Latencia p99 |
+|---:|---|---:|---:|
+| 1 | uws | 54.223 | 6,40 ms |
+| **2** | **Poseidon v2** | **53.920** | 67,30 ms |
+| 3 | Actix | 52.708 | 7,03 ms |
+| 4 | Go Fiber | 38.110 | 68,71 ms |
+| 5 | mORMot2 | 33.372 | 46,99 ms |
+| 6 | nginx | 27.393 | 71,61 ms |
+| 7 | Kestrel | 23.785 | 54,12 ms |
+| 8 | Horse (Epoll) | 2.475 | 493,02 ms |
+
+Segundo lugar entre 8, a frente de todos os outros frameworks Delphi/Pascal e de todos os frameworks de proposito geral exceto o uws — e **21,8x o Horse**. O p99 reflete a fatia de JSON grande da carga mista; uws/Actix trocam superficie de funcionalidades por uma cauda mais achatada (ver a matriz abaixo). A metodologia completa vive no harness `Benchmark` separado (ponteiros em [`docs/playbook_pt-br/07-benchmarking`](docs/playbook_pt-br/07-benchmarking)); os numeros reproduziveis deste proprio repo estao em [`samples/08-benchmark/`](samples/08-benchmark/).
+
+<p align="center">
+  <img src="docs/framework-features_pt-br.svg" alt="Comparacao de recursos de protocolo do Poseidon contra 7 outros frameworks" width="880"/>
+</p>
+
+Toda mudanca no caminho quente e validada com uma comparacao controlada antes/depois antes de ser mergeada — mesmo binario, uma mudanca por vez. A rodada de parser/dispatcher de 2026-08-07 (removeu uma alocacao redundante no header `Connection`, pulou a varredura de deteccao de upgrade em GETs sem upgrade) mediu **+1,7% de throughput**, com toda repeticao do lado "depois" superando toda repeticao do lado "antes".
+
+---
+
 ## Funcionalidades
 
 **Engine** — HTTP/1.1 keep-alive · HTTP/2 (ALPN h2, h2c, server push, flow control) · WebSocket (RFC 6455, permessage-deflate) · HTTPS com OpenSSL nativo (SNI, mTLS) · Compressao gzip + Brotli · Proxy Protocol v1/v2 · Graceful reload (PID file, SIGTERM, zero-downtime) · Windows 64-bit (IOCP/RIO) + Linux 64-bit (io_uring/epoll) · Delphi 11+ e Free Pascal 3.3.1

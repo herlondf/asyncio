@@ -2,6 +2,10 @@
 
 What Poseidon prints when a process dies, and how to turn it into a fix.
 
+> **Delphi/`dcclinux64` only for now.** Under FPC, `Poseidon.Diagnostics` fails
+> to compile — see [Platform notes](platform-notes.md#free-pascal--lazarus).
+> An FPC/Linux deployment runs without this crash handler installed.
+
 ## The problem this solves
 
 A long-running server that dies of memory corruption on Linux gives you, by
