@@ -56,8 +56,8 @@ function BuildHTTPResponsePooled(
 
 // Build only HTTP headers (no body copy). Returns pool-backed TBytes.
 // AHdrActualLen = bytes actually written. Body is sent separately via vectored I/O.
-// When AUseArena=True, uses thread-local THeaderArena (no pool round-trip).
-// Caller must NOT release the returned buffer (it's reused across requests).
+// Caller must NOT release this directly -- the IO backend's SendResponseV
+// releases it once the vectored send completes.
 function BuildHTTPResponseHeaders(
   AStatus:          Integer;
   const AContentType: string;
@@ -66,8 +66,7 @@ function BuildHTTPResponseHeaders(
   const AExtra:     TArray<TPair<string,string>>;
   ASecureHeaders:   Boolean;
   const AServerBanner: string;
-  out AHdrActualLen: Integer;
-  AUseArena:        Boolean = False): TBytes;
+  out AHdrActualLen: Integer): TBytes;
 
 // Pre-encoded default error body: {"error":"Internal Server Error"}
 // Use as initial value in the dispatch loop before calling the user handler.
@@ -87,8 +86,7 @@ uses
   {$ELSE}
   System.DateUtils,
   {$ENDIF}
-  Poseidon.Net.Pool.Buffer,
-  Poseidon.Net.Pool.Arena;
+  Poseidon.Net.Pool.Buffer;
 
 // ---------------------------------------------------------------------------
 // Pre-encoded response fragments — initialized once in `initialization`.
@@ -464,12 +462,11 @@ begin
 end;
 
 // Build headers only — body sent separately via vectored I/O.
-// When AUseArena=True, uses thread-local buffer (zero alloc on hot path).
 function BuildHTTPResponseHeaders(AStatus: Integer;
   const AContentType: string; ABodyLen: Integer; AKeepAlive: Boolean;
   const AExtra: TArray<TPair<string,string>>;
   ASecureHeaders: Boolean; const AServerBanner: string;
-  out AHdrActualLen: Integer; AUseArena: Boolean): TBytes;
+  out AHdrActualLen: Integer): TBytes;
 var
   LStatusBytes: TBytes;
   LConnBytes: TBytes;
@@ -503,11 +500,7 @@ begin
           + LCLBlock
           + Length(LConnBytes) + LExtraLen + Length(G_CRLF);
 
-  // Thread-local arena avoids pool round-trip in SyncDispatch
-  if AUseArena then
-    Result := THeaderArena.Acquire(LTotal)
-  else
-    Result := TBufferPool.Acquire(LTotal);
+  Result := TBufferPool.Acquire(LTotal);
   LPos := 0;
 
   Move(LStatusBytes[0], Result[LPos], Length(LStatusBytes));
