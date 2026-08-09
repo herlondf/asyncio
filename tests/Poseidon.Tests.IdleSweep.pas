@@ -25,6 +25,19 @@ type
     [Test] procedure Enabled_HandlerPastLimit_ForceClosedOnce;
     [Test] procedure Enabled_HandlerWithinLimit_NotForceClosed;
   end;
+
+  // AccumBuf grows via the pool tier (8/64/512 KB) on a large request, but
+  // _CompactAccum only ever resets AccumLen, never the buffer's capacity --
+  // the sweep now shrinks an idle, fully-drained oversized buffer back to
+  // tier 0. Coverage: it does; it does not touch a busy connection
+  // (InFlightPool > 0); it does not touch one with pending unconsumed bytes.
+  [TestFixture]
+  TIdleSweepAccumBufShrinkTests = class
+  public
+    [Test] procedure IdleOversizedBuffer_ShrinksToTier0;
+    [Test] procedure BusyConnection_BufferNotShrunk;
+    [Test] procedure PendingBytes_BufferNotShrunk;
+  end;
   {$M-}
 
 implementation
@@ -35,6 +48,7 @@ uses
   System.Classes,
   Poseidon.Net.Connection,
   Poseidon.Net.Connection.Manager,
+  Poseidon.Net.Pool.Buffer,
   Poseidon.Net.IdleSweep;
 
 const
@@ -225,7 +239,129 @@ begin
   end;
 end;
 
+{ TIdleSweepAccumBufShrinkTests }
+
+procedure TIdleSweepAccumBufShrinkTests.IdleOversizedBuffer_ShrinksToTier0;
+var
+  LActive: Boolean;
+  LConnMgr: TConnectionManager;
+  LSweep: TIdleSweepManager;
+  LConn: TNativeConn;
+begin
+  LActive := True;
+  LConnMgr := TConnectionManager.Create;
+  LConn := TNativeConn.Create(0, '127.0.0.1:4');
+  try
+    LConnMgr.Admit(LConn);
+    TBufferPool.Release(LConn.AccumBuf);
+    LConn.AccumBuf := TBufferPool.Acquire(POOL_TIER1_SIZE);  // simulate a past large request
+    LConn.AccumLen := 0;                                     // fully drained
+    LConn.InFlightPool := 0;                                 // idle, no active dispatch
+    LConn.LastActivityTick := TThread.GetTickCount64;
+
+    LSweep := TIdleSweepManager.Create(LConnMgr, nil, @LActive);
+    try
+      // Must be non-zero: IdleTimeoutMs=0 AND MaxHandlerRunMs=0 together make
+      // the sweep skip per-connection processing entirely (its own early-exit
+      // when both checks are disabled), which would also skip the shrink
+      // check. 60s is far longer than this test runs, so idle-close itself
+      // never fires.
+      LSweep.IdleTimeoutMs := 60000;
+      LSweep.MaxHandlerRunMs := 0;
+      LSweep.Start;
+      Sleep(CPollTimeoutMs);
+      Assert.IsTrue(Length(LConn.AccumBuf) = POOL_TIER0_SIZE,
+        'an idle, fully-drained oversized AccumBuf must shrink back to tier 0');
+    finally
+      LActive := False;
+      LSweep.Stop;
+      FreeAndNil(LSweep);
+    end;
+  finally
+    LConnMgr.Remove(LConn);
+    LConn.Release;
+    FreeAndNil(LConnMgr);
+  end;
+end;
+
+procedure TIdleSweepAccumBufShrinkTests.BusyConnection_BufferNotShrunk;
+var
+  LActive: Boolean;
+  LConnMgr: TConnectionManager;
+  LSweep: TIdleSweepManager;
+  LConn: TNativeConn;
+begin
+  LActive := True;
+  LConnMgr := TConnectionManager.Create;
+  LConn := TNativeConn.Create(0, '127.0.0.1:5');
+  try
+    LConnMgr.Admit(LConn);
+    TBufferPool.Release(LConn.AccumBuf);
+    LConn.AccumBuf := TBufferPool.Acquire(POOL_TIER1_SIZE);
+    LConn.AccumLen := 0;
+    LConn.InFlightPool := 1;  // a handler is running -- must not be touched
+    LConn.LastActivityTick := TThread.GetTickCount64;
+
+    LSweep := TIdleSweepManager.Create(LConnMgr, nil, @LActive);
+    try
+      LSweep.IdleTimeoutMs := 60000;  // non-zero -- see comment in the previous test
+      LSweep.MaxHandlerRunMs := 0;
+      LSweep.Start;
+      Sleep(CPollTimeoutMs);
+      Assert.IsTrue(Length(LConn.AccumBuf) >= POOL_TIER1_SIZE,
+        'a busy connection''s AccumBuf must not be shrunk under it');
+    finally
+      LActive := False;
+      LSweep.Stop;
+      FreeAndNil(LSweep);
+    end;
+  finally
+    LConnMgr.Remove(LConn);
+    LConn.Release;
+    FreeAndNil(LConnMgr);
+  end;
+end;
+
+procedure TIdleSweepAccumBufShrinkTests.PendingBytes_BufferNotShrunk;
+var
+  LActive: Boolean;
+  LConnMgr: TConnectionManager;
+  LSweep: TIdleSweepManager;
+  LConn: TNativeConn;
+begin
+  LActive := True;
+  LConnMgr := TConnectionManager.Create;
+  LConn := TNativeConn.Create(0, '127.0.0.1:6');
+  try
+    LConnMgr.Admit(LConn);
+    TBufferPool.Release(LConn.AccumBuf);
+    LConn.AccumBuf := TBufferPool.Acquire(POOL_TIER1_SIZE);
+    LConn.AccumLen := 10;     // unconsumed bytes still sitting in the buffer
+    LConn.InFlightPool := 0;
+    LConn.LastActivityTick := TThread.GetTickCount64;
+
+    LSweep := TIdleSweepManager.Create(LConnMgr, nil, @LActive);
+    try
+      LSweep.IdleTimeoutMs := 60000;  // non-zero -- see comment in the first test
+      LSweep.MaxHandlerRunMs := 0;
+      LSweep.Start;
+      Sleep(CPollTimeoutMs);
+      Assert.IsTrue(Length(LConn.AccumBuf) >= POOL_TIER1_SIZE,
+        'a buffer with unconsumed pending bytes must not be shrunk');
+    finally
+      LActive := False;
+      LSweep.Stop;
+      FreeAndNil(LSweep);
+    end;
+  finally
+    LConnMgr.Remove(LConn);
+    LConn.Release;
+    FreeAndNil(LConnMgr);
+  end;
+end;
+
 initialization
   TDUnitX.RegisterTestFixture(TIdleSweepHandlerWatchdogTests);
+  TDUnitX.RegisterTestFixture(TIdleSweepAccumBufShrinkTests);
 
 end.

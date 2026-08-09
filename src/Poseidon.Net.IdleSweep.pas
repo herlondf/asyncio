@@ -22,6 +22,7 @@ uses
   Poseidon.Net.Types,
   Poseidon.Net.Connection,
   Poseidon.Net.Connection.Manager,
+  Poseidon.Net.Pool.Buffer,
   Poseidon.Net.IO;
 
 type
@@ -126,6 +127,7 @@ var
   LDiff:    UInt64;
   LIdle:    Int64;
   LLastBeat: UInt64;
+  LOldBuf:  TBytes;
 begin
   LLastBeat := TThread.GetTickCount64;
   while FActive^ do
@@ -175,6 +177,25 @@ begin
               FOnForceClose(LSnap[I]);
           end;
           Continue;
+        end;
+
+        // AccumBuf grows via the pool tier (8/64/512 KB) on a large request
+        // but _CompactAccum only ever resets AccumLen, never the buffer's
+        // capacity -- a keep-alive connection that once handled one big
+        // request holds that peak size for the rest of its life otherwise.
+        // Safe here specifically because InFlightPool = 0 (no dispatch is
+        // touching AccumBuf) and LConn.Lock excludes a concurrent recv on
+        // this connection's own IO thread (#213 same serialization).
+        LConn.Lock.Enter;
+        try
+          if (LConn.AccumLen = 0) and (Length(LConn.AccumBuf) > POOL_TIER0_SIZE) then
+          begin
+            LOldBuf := LConn.AccumBuf;
+            LConn.AccumBuf := TBufferPool.Acquire;
+            TBufferPool.Release(LOldBuf);
+          end;
+        finally
+          LConn.Lock.Leave;
         end;
 
         if FIdleTimeoutMs <= 0 then Continue;
