@@ -68,6 +68,11 @@ const
   // signals
   SIGHUP  = 1;
   SIGINT  = 2;
+  SIGILL  = 4;
+  SIGABRT = 6;
+  SIGBUS  = 7;
+  SIGFPE  = 8;
+  SIGSEGV = 11;
   SIGPIPE = 13;
   SIGTERM = 15;
   SIG_IGN = Pointer(1);   // ignore-signal sentinel (cast to TSignalHandler)
@@ -129,6 +134,11 @@ function signal(sig: Integer; handler: TSignalHandler): TSignalHandler; cdecl; e
 function sigaction(sig: Integer; act: Psigaction_t; oldact: Psigaction_t): Integer; cdecl; external 'libc.so.6' name 'sigaction';
 function sigemptyset(var nset: sigset_t): Integer; cdecl; external 'libc.so.6' name 'sigemptyset';
 function getpid: Integer; cdecl; external 'libc.so.6' name 'getpid';
+// Poseidon.Diagnostics (crash handler): re-raises the original signal after
+// reporting, and writes the report to stderr without going through any
+// buffered/allocating I/O (async-signal-safety -- see that unit's header).
+function __raise(sig: Integer): Integer; cdecl; external 'libc.so.6' name 'raise';
+function __write(fd: Integer; buf: Pointer; count: NativeUInt): NativeInt; cdecl; external 'libc.so.6' name 'write';
 
 // Delphi's cross-platform GetLastError maps to errno on POSIX. The backends
 // call libc entry points directly, so this must read LIBC's thread-local errno
