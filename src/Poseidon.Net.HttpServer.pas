@@ -1557,7 +1557,8 @@ begin
   if Assigned(FOnLog) then
     FOnLog(ALevel, AMessage)
   else
-    Writeln(ErrOutput, '[poseidon][', LEVEL_LABEL[ALevel], '] ', AMessage);
+    Writeln(ErrOutput, '[poseidon][', LEVEL_LABEL[ALevel], '][iid=',
+      TPoseidonDiagnostics.InstanceId, '] ', AMessage);
 end;
 
 procedure TPoseidonNativeServer.RegisterWSHandler(const APath: string;

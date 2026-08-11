@@ -46,6 +46,11 @@ type
     class procedure InstallCrashHandler; static;
     // True once InstallCrashHandler has run successfully.
     class function CrashHandlerInstalled: Boolean; static;
+    // Short (6 hex chars) id generated once per process, stable for its
+    // lifetime. Lets operators visually separate interleaved log lines from
+    // different replicas/instances sharing one aggregated log stream, and
+    // correlates a crash report back to that same instance's [health] lines.
+    class function InstanceId: string; static;
   end;
 
 implementation
@@ -54,9 +59,11 @@ implementation
 
 uses
   {$IFDEF FPC}
+  SysUtils,
   syncobjs,
   Poseidon.Compat.Posix;
   {$ELSE}
+  System.SysUtils,
   System.SyncObjs,
   Posix.Signal,
   Posix.Unistd;
@@ -65,6 +72,7 @@ uses
 const
   CMaxFrames = 64;
   CStdErr = 2;
+  CInstanceIdLen = 6;
   // x86-64 syscall number. glibc only exposes gettid() as a function from
   // 2.30 on, and Poseidon targets Linux x86-64 only, so the raw syscall is
   // both safer across base images and async-signal-safe.
@@ -83,6 +91,28 @@ var
   // Pre-touched at install time so the first backtrace() inside the handler
   // cannot be the one that lazily loads libgcc's unwinder (which allocates).
   GWarmup: array[0..CMaxFrames - 1] of Pointer;
+  // Null-terminated, generated once by _EnsureInstanceId. Read directly (no
+  // string type) from _CrashHandler, which must stay async-signal-safe.
+  GInstanceId: array[0..CInstanceIdLen] of AnsiChar;
+  GInstanceIdReady: Integer = 0;
+
+// Not called from signal context — TGUID.NewGuid is a normal (allocating)
+// call, safe here because this only ever runs from ordinary thread code
+// (InstanceId's first call, or InstallCrashHandler). _CrashHandler itself
+// only ever READS the already-populated GInstanceId buffer.
+procedure _EnsureInstanceId;
+const
+  CHexDigits: array[0..15] of AnsiChar = '0123456789abcdef';
+var
+  LGuid: TGUID;
+  I: Integer;
+begin
+  if TInterlocked.CompareExchange(GInstanceIdReady, 1, 0) <> 0 then Exit;
+  LGuid := TGUID.NewGuid;
+  for I := 0 to CInstanceIdLen - 1 do
+    GInstanceId[I] := CHexDigits[LGuid.D4[I] and $0F];
+  GInstanceId[CInstanceIdLen] := #0;
+end;
 
 procedure _Emit(AMsg: PAnsiChar);
 var
@@ -147,7 +177,9 @@ var
   LFrames: array[0..CMaxFrames - 1] of Pointer;
   LCount: Integer;
 begin
-  _Emit(#10'=== POSEIDON CRASH REPORT ==='#10);
+  _Emit(#10'=== POSEIDON CRASH REPORT (iid=');
+  _Emit(PAnsiChar(@GInstanceId[0]));
+  _Emit(') ==='#10);
   _Emit('signal : ');
   _EmitInt(ASigNum);
   _Emit(' - ');
@@ -195,7 +227,43 @@ begin
   Result := TInterlocked.CompareExchange(GInstalled, 0, 0) <> 0;
 end;
 
+class function TPoseidonDiagnostics.InstanceId: string;
+begin
+  _EnsureInstanceId;
+  Result := string(AnsiString(PAnsiChar(@GInstanceId[0])));
+end;
+
 {$ELSE}
+
+uses
+  {$IFDEF FPC}
+  SysUtils,
+  syncobjs;
+  {$ELSE}
+  System.SysUtils,
+  System.SyncObjs;
+  {$ENDIF}
+
+const
+  CInstanceIdLen = 6;
+
+var
+  GInstanceId: array[0..CInstanceIdLen] of AnsiChar;
+  GInstanceIdReady: Integer = 0;
+
+procedure _EnsureInstanceId;
+const
+  CHexDigits: array[0..15] of AnsiChar = '0123456789abcdef';
+var
+  LGuid: TGUID;
+  I: Integer;
+begin
+  if TInterlocked.CompareExchange(GInstanceIdReady, 1, 0) <> 0 then Exit;
+  LGuid := TGUID.NewGuid;
+  for I := 0 to CInstanceIdLen - 1 do
+    GInstanceId[I] := CHexDigits[LGuid.D4[I] and $0F];
+  GInstanceId[CInstanceIdLen] := #0;
+end;
 
 class procedure TPoseidonDiagnostics.InstallCrashHandler;
 begin
@@ -206,6 +274,12 @@ end;
 class function TPoseidonDiagnostics.CrashHandlerInstalled: Boolean;
 begin
   Result := False;
+end;
+
+class function TPoseidonDiagnostics.InstanceId: string;
+begin
+  _EnsureInstanceId;
+  Result := string(AnsiString(PAnsiChar(@GInstanceId[0])));
 end;
 
 {$ENDIF}
