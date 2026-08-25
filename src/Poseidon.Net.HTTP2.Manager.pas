@@ -73,6 +73,17 @@ const
 var
   DefaultErrorBody: TBytes;
 
+// #234: same shared-refcount-race class as the fix in
+// Poseidon.Net.ResponseBuilder.pas / Poseidon.Native.Server.pas -- see those
+// for the full explanation. DefaultErrorBody is set once in `initialization`
+// and read via plain assignment from every stream's error path.
+function _CopyBytes(const ASrc: TBytes): TBytes; inline;
+begin
+  SetLength(Result, Length(ASrc));
+  if Length(ASrc) > 0 then
+    Move(ASrc[0], Result[0], Length(ASrc));
+end;
+
 constructor THTTP2Manager.Create(ASend: TH2TransportSend;
   AClose: TH2TransportClose; ARecv: TH2TransportRecv);
 begin
@@ -170,7 +181,7 @@ begin
 
   LStatus := 500;
   LCT := 'application/json';
-  LBody := DefaultErrorBody;
+  LBody := _CopyBytes(DefaultErrorBody);
   SetLength(LExtra, 0);
   if FInFlightCount <> nil then
     TInterlocked.Increment(FInFlightCount^);

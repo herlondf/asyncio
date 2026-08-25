@@ -72,6 +72,8 @@ type
     procedure SetIdleTimeoutMs(AValue: Integer);
     function GetMaxHandlerRunMs: Integer;
     procedure SetMaxHandlerRunMs(AValue: Integer);
+    function GetShrinkAccumBufEnabled: Boolean;
+    procedure SetShrinkAccumBufEnabled(AValue: Boolean);
     function GetMaxRequestSize: Integer;
     procedure SetMaxRequestSize(AValue: Integer);
     function GetMaxHeaderSize: Integer;
@@ -150,6 +152,10 @@ type
     // as stuck and its connection is force-closed (worker thread itself is
     // never killed). Default 0 = disabled — opt-in.
     property MaxHandlerRunMs: Integer read GetMaxHandlerRunMs write SetMaxHandlerRunMs;
+    // #234 incident mitigation: see TPoseidonNativeServer.ShrinkAccumBufEnabled
+    // (Poseidon.Net.HttpServer). Default True. Must be set before Listen().
+    property ShrinkAccumBufEnabled: Boolean
+      read GetShrinkAccumBufEnabled write SetShrinkAccumBufEnabled;
     property MaxRequestSize: Integer read GetMaxRequestSize write SetMaxRequestSize;
     property MaxHeaderSize: Integer read GetMaxHeaderSize write SetMaxHeaderSize;
     property DrainTimeoutMs: Integer read GetDrainTimeoutMs write SetDrainTimeoutMs;
@@ -184,6 +190,19 @@ const
 var
   GNotFoundBody: TBytes;
   GInternalErrorBody: TBytes;
+
+// #234: same shared-refcount-race class as the fix in
+// Poseidon.Net.ResponseBuilder.pas / Redis.Pool.pas -- GNotFoundBody/
+// GInternalErrorBody are TBytes globals set once in `initialization` and
+// read via plain assignment (ABody := GNotFoundBody) from every worker
+// thread on every 404/500. A dynamic-array assignment is a reference copy
+// (shared buffer, non-atomic refcount bump), not a value copy.
+function _CopyBytes(const ASrc: TBytes): TBytes; inline;
+begin
+  SetLength(Result, Length(ASrc));
+  if Length(ASrc) > 0 then
+    Move(ASrc[0], Result[0], Length(ASrc));
+end;
 
 // ---------------------------------------------------------------------------
 // Constructor / Destructor
@@ -390,7 +409,7 @@ begin
     begin
       AStatus := 500;
       AContentType := 'application/problem+json';
-      ABody := GInternalErrorBody;
+      ABody := _CopyBytes(GInternalErrorBody);
       AExtraHeaders := nil;
       Exit;
     end;
@@ -400,7 +419,7 @@ begin
   begin
     AStatus := 404;
     AContentType := 'application/problem+json';
-    ABody := GNotFoundBody;
+    ABody := _CopyBytes(GNotFoundBody);
     AExtraHeaders := nil;
     Exit;
   end;
@@ -654,6 +673,12 @@ begin Result := FServer.MaxHandlerRunMs; end;
 
 procedure TPoseidonServer.SetMaxHandlerRunMs(AValue: Integer);
 begin FServer.MaxHandlerRunMs := AValue; end;
+
+function TPoseidonServer.GetShrinkAccumBufEnabled: Boolean;
+begin Result := FServer.ShrinkAccumBufEnabled; end;
+
+procedure TPoseidonServer.SetShrinkAccumBufEnabled(AValue: Boolean);
+begin FServer.ShrinkAccumBufEnabled := AValue; end;
 
 function TPoseidonServer.GetMaxRequestSize: Integer;
 begin Result := FServer.MaxRequestSize; end;

@@ -568,17 +568,65 @@ begin
   end;
 end;
 
+const
+  // Contention on SocketOpGuard clears in nanoseconds (both guarded sections
+  // below are one or two syscalls, nothing else) -- spin this many times
+  // before yielding the CPU instead of reaching for a heavier primitive.
+  CSocketGuardTightSpins = 1000;
+
+// #234: acquires LConn.SocketOpGuard, blocking until free. Only ever called
+// from SocketClose, which never runs on a core thread -- blocking here
+// cannot stall any connection's I/O the way blocking in _ArmSendReady would.
+procedure _AcquireSocketGuard(AConn: Pointer);
+var
+  LConn: TNativeConn absolute AConn;
+  LSpins: Integer;
+begin
+  LSpins := 0;
+  while TInterlocked.CompareExchange(LConn.SocketOpGuard, 1, 0) <> 0 do
+  begin
+    Inc(LSpins);
+    if LSpins > CSocketGuardTightSpins then
+      TThread.Yield;
+  end;
+end;
+
+procedure _ReleaseSocketGuard(AConn: Pointer);
+var
+  LConn: TNativeConn absolute AConn;
+begin
+  TInterlocked.Exchange(LConn.SocketOpGuard, 0);
+end;
+
+// Never blocks. Returns False on contention -- the caller (_ArmSendReady,
+// on the core thread) must skip its work safely rather than wait.
+function _TryAcquireSocketGuard(AConn: Pointer): Boolean;
+var
+  LConn: TNativeConn absolute AConn;
+begin
+  Result := TInterlocked.CompareExchange(LConn.SocketOpGuard, 1, 0) = 0;
+end;
+
 procedure TEpollBackend.SocketClose(AConn: Pointer);
 var
   LConn: TNativeConn absolute AConn;
   LSock: Integer;
 begin
-  // #173: invalidate the conn's fd copy before closing (kernel reuses fds).
-  LSock := LConn.Socket;
-  LConn.Socket := -1;
-  epoll_ctl(LConn.OwnerEpollFd, EPOLL_CTL_DEL, LSock, nil);
-  shutdown(LSock, SHUT_WR);
-  _LinuxClose(LSock);
+  // #234: excludes _ArmSendReady, which touches this same Socket/epoll_ctl
+  // pair lock-free from the core thread -- without this, its stale
+  // epoll_ctl(MOD) could land after this close() and silently re-point a
+  // reused fd's epoll entry back at this (about-to-be-freed) connection.
+  _AcquireSocketGuard(AConn);
+  try
+    // #173: invalidate the conn's fd copy before closing (kernel reuses fds).
+    LSock := LConn.Socket;
+    LConn.Socket := -1;
+    epoll_ctl(LConn.OwnerEpollFd, EPOLL_CTL_DEL, LSock, nil);
+    shutdown(LSock, SHUT_WR);
+    _LinuxClose(LSock);
+  finally
+    _ReleaseSocketGuard(AConn);
+  end;
 end;
 
 // ---------------------------------------------------------------------------
@@ -621,6 +669,19 @@ begin
   AComplete := False;
   AFailed := False;
   AMore := False;
+
+  // #234: TryAddRef in the caller (_CoreWorkerLoop) closes the "refcount
+  // already 0" window, but Helgrind still caught a live SIGSEGV here with a
+  // held, non-zero reference -- something else is corrupting this specific
+  // field under real concurrent load and the exact mechanism is still
+  // unconfirmed. A nil Lock unambiguously means this connection cannot be
+  // safely drained right now; bail out exactly like the lock-contention path
+  // already does instead of dereferencing it.
+  if not Assigned(LConn.Lock) then
+  begin
+    AFailed := True;
+    Exit;
+  end;
 
   if AFromCore then
   begin
@@ -691,16 +752,25 @@ end;
 // Re-arms EPOLLOUT so a send this thread could not drain is retried later.
 // Lock-free by design: it is called precisely when the lock is unavailable.
 // A spurious wake is harmless — _FlushSend then finds PendingSend = nil.
+// #234: TryAcquires SocketOpGuard against a concurrent SocketClose (e.g.
+// TIdleSweepManager force-closing this same connection on another thread).
+// On contention, skip entirely rather than wait — never block the core
+// thread — the connection is being closed anyway, so a missed rearm is moot.
 procedure TEpollBackend._ArmSendReady(AConn: Pointer);
 var
   LConn: TNativeConn absolute AConn;
   LEv: epoll_event;
 begin
-  if LConn.Socket = -1 then Exit;
-  FillChar(LEv, SizeOf(LEv), 0);
-  LEv.events := EPOLLOUT or EPOLLRDHUP or EPOLLONESHOT;
-  LEv.data.ptr := AConn;
-  epoll_ctl(LConn.OwnerEpollFd, EPOLL_CTL_MOD, LConn.Socket, @LEv);
+  if not _TryAcquireSocketGuard(AConn) then Exit;
+  try
+    if LConn.Socket = -1 then Exit;
+    FillChar(LEv, SizeOf(LEv), 0);
+    LEv.events := EPOLLOUT or EPOLLRDHUP or EPOLLONESHOT;
+    LEv.data.ptr := AConn;
+    epoll_ctl(LConn.OwnerEpollFd, EPOLL_CTL_MOD, LConn.Socket, @LEv);
+  finally
+    _ReleaseSocketGuard(AConn);
+  end;
 end;
 
 procedure TEpollBackend._FlushSend(AConn: Pointer; AFromCore: Boolean);
@@ -813,12 +883,18 @@ begin
       end;
 
       LConn := TNativeConn(LEvents[I].data.ptr);
+      // #234: LEvents[I].data.ptr is a weak pointer — the kernel's epoll
+      // interest list holds it independent of this connection's Delphi-side
+      // lifetime, so it can already be mid-Destroy (or fully freed) by the
+      // time this event is dequeued. TryAddRef atomically refuses to
+      // resurrect a connection whose refcount already hit 0 instead of
+      // touching any of its fields (see TNativeConn.TryAddRef).
+      if not LConn.TryAddRef then Continue;
       // Hold a ref for the whole event: _DoRecv / OnConnError can reach
       // _CloseConn, which drops the server ref (this backend takes none per
       // operation) and Destroys the connection — while the EPOLLOUT probe
       // below still reads LConn.PendingSend and _FlushSend still needs
       // LConn.Lock to exist.
-      LConn.AddRef;
       try
         try
           if (LEvents[I].events and (EPOLLERR or EPOLLHUP)) <> 0 then

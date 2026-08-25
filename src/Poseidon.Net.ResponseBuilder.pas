@@ -88,6 +88,55 @@ uses
   {$ENDIF}
   Poseidon.Net.Pool.Buffer;
 
+// #234: the G_* constants below are TBytes (dynamic arrays), assigned once in
+// `initialization` and never reassigned afterward -- but every worker thread
+// reads them on nearly every response via a plain `Result := CopyBytes(G_STATUS_200);`
+// -style assignment. A dynamic-array assignment is a reference copy (shares
+// the same underlying buffer, bumping its refcount), not a value copy.
+// GDB caught a live crash whose full, non-truncated backtrace showed glibc's
+// own allocator detecting "unsorted double linked list corrupted" during a
+// string realloc reached from this exact response-header-building path --
+// the same class of concurrent-shared-refcount corruption already confirmed
+// and fixed once this session in TRedisPool.CreateClient (see
+// Redis.Pool.pas). CopyBytes forces an explicit, independent copy at every
+// read site below, so no two threads ever share a reference to the same
+// underlying buffer.
+// #234: TEncoding.ASCII.GetBytes on this Linux/ICU-backed Delphi runtime
+// routes through System.LocaleCharsFromUnicodeICU, which calls into libicuuc
+// (ucnv_close et al). Helgrind caught two worker threads racing inside ICU's
+// own converter-close path with NO Delphi-side lock involved -- ICU's
+// converter cache is not safe under this level of uncoordinated concurrent
+// use, and every response calls into it at least once via _BuildExtraStr's
+// encode. Every string encoded on this path (sanitized header values, fixed
+// literal headers, status/reason lines) is guaranteed pure 7-bit ASCII, so
+// bypass TEncoding/ICU entirely: an ASCII char's low byte IS its byte value.
+// Lock-free by construction (no shared resource left to race on) and faster
+// than the ICU round-trip it replaces.
+function _AsciiBytes(const S: string): TBytes; inline;
+var
+  I: Integer;
+begin
+  SetLength(Result, Length(S));
+  for I := 1 to Length(S) do
+    Result[I - 1] := Byte(Ord(S[I]));
+end;
+
+procedure _AsciiBytesInto(const S: string; ACharIndex, ACharCount: Integer;
+  var ABuf: TBytes; AByteIndex: Integer); inline;
+var
+  I: Integer;
+begin
+  for I := 0 to ACharCount - 1 do
+    ABuf[AByteIndex + I] := Byte(Ord(S[ACharIndex + I]));
+end;
+
+function CopyBytes(const ASrc: TBytes): TBytes; inline;
+begin
+  SetLength(Result, Length(ASrc));
+  if Length(ASrc) > 0 then
+    Move(ASrc[0], Result[0], Length(ASrc));
+end;
+
 // ---------------------------------------------------------------------------
 // Pre-encoded response fragments — initialized once in `initialization`.
 // ---------------------------------------------------------------------------
@@ -273,17 +322,17 @@ function GetContentTypeValueBytes(const AContentType: string;
 // AAlloc = True when the returned TBytes was freshly allocated.
 begin
   AAlloc := False;
-  if      AContentType = 'application/json'         then Result := G_CT_JSON
-  else if AContentType = 'text/plain'               then Result := G_CT_TEXT
-  else if AContentType = 'text/html'                then Result := G_CT_HTML
-  else if AContentType = 'application/problem+json' then Result := G_CT_PROBLEM
-  else if AContentType = 'application/x-www-form-urlencoded' then Result := G_CT_FORM
-  else if AContentType = 'application/octet-stream' then Result := G_CT_OCTET
+  if      AContentType = 'application/json'         then Result := CopyBytes(G_CT_JSON)
+  else if AContentType = 'text/plain'               then Result := CopyBytes(G_CT_TEXT)
+  else if AContentType = 'text/html'                then Result := CopyBytes(G_CT_HTML)
+  else if AContentType = 'application/problem+json' then Result := CopyBytes(G_CT_PROBLEM)
+  else if AContentType = 'application/x-www-form-urlencoded' then Result := CopyBytes(G_CT_FORM)
+  else if AContentType = 'application/octet-stream' then Result := CopyBytes(G_CT_OCTET)
   else
   begin
     // Sanitize CR/LF/NUL to defeat response splitting via handler-supplied
     // Content-Type (issue #159 — same policy as extra headers).
-    Result := TEncoding.ASCII.GetBytes(_SanitizeHeaderValue(AContentType));
+    Result := _AsciiBytes(_SanitizeHeaderValue(AContentType));
     AAlloc := True;
   end;
 end;
@@ -291,27 +340,27 @@ end;
 function GetStatusLineBytes(AStatus: Integer): TBytes;
 begin
   case AStatus of
-    200: Result := G_STATUS_200;
-    201: Result := G_STATUS_201;
-    204: Result := G_STATUS_204;
-    301: Result := G_STATUS_301;
-    302: Result := G_STATUS_302;
-    303: Result := G_STATUS_303;
-    304: Result := G_STATUS_304;
-    400: Result := G_STATUS_400;
-    401: Result := G_STATUS_401;
-    403: Result := G_STATUS_403;
-    404: Result := G_STATUS_404;
-    405: Result := G_STATUS_405;
-    409: Result := G_STATUS_409;
-    413: Result := G_STATUS_413;
-    422: Result := G_STATUS_422;
-    429: Result := G_STATUS_429;
-    500: Result := G_STATUS_500;
-    503: Result := G_STATUS_503;
+    200: Result := CopyBytes(G_STATUS_200);
+    201: Result := CopyBytes(G_STATUS_201);
+    204: Result := CopyBytes(G_STATUS_204);
+    301: Result := CopyBytes(G_STATUS_301);
+    302: Result := CopyBytes(G_STATUS_302);
+    303: Result := CopyBytes(G_STATUS_303);
+    304: Result := CopyBytes(G_STATUS_304);
+    400: Result := CopyBytes(G_STATUS_400);
+    401: Result := CopyBytes(G_STATUS_401);
+    403: Result := CopyBytes(G_STATUS_403);
+    404: Result := CopyBytes(G_STATUS_404);
+    405: Result := CopyBytes(G_STATUS_405);
+    409: Result := CopyBytes(G_STATUS_409);
+    413: Result := CopyBytes(G_STATUS_413);
+    422: Result := CopyBytes(G_STATUS_422);
+    429: Result := CopyBytes(G_STATUS_429);
+    500: Result := CopyBytes(G_STATUS_500);
+    503: Result := CopyBytes(G_STATUS_503);
   else
     // Slow path for uncommon codes — build inline with a proper reason phrase.
-    Result := TEncoding.ASCII.GetBytes(
+    Result := _AsciiBytes(
       'HTTP/1.1 ' + IntToStr(AStatus) + ' ' + _ReasonPhrase(AStatus) + #13#10);
   end;
 end;
@@ -335,8 +384,8 @@ var
   LEmitCL: Boolean;
 begin
   LStatusBytes := GetStatusLineBytes(AStatus);
-  if AKeepAlive then LConnBytes := G_CONN_KA
-  else LConnBytes := G_CONN_CLOSE;
+  if AKeepAlive then LConnBytes := CopyBytes(G_CONN_KA)
+  else LConnBytes := CopyBytes(G_CONN_CLOSE);
 
   LCTValue := GetContentTypeValueBytes(AContentType, LCTAlloced);
   LEmitCL  := _StatusHasBody(AStatus);
@@ -376,7 +425,7 @@ begin
 
   if LExtraLen > 0 then
   begin
-    TEncoding.ASCII.GetBytes(AExtraStr, 1, LExtraLen, ABuf, LPos);
+    _AsciiBytesInto(AExtraStr, 1, LExtraLen, ABuf, LPos);
     Inc(LPos, LExtraLen);
   end;
 
@@ -399,8 +448,8 @@ var
   LCLLen, LCTLen, LCLBlock: Integer;
 begin
   LStatusBytes := GetStatusLineBytes(AStatus);
-  if AKeepAlive then LConnBytes := G_CONN_KA
-  else LConnBytes := G_CONN_CLOSE;
+  if AKeepAlive then LConnBytes := CopyBytes(G_CONN_KA)
+  else LConnBytes := CopyBytes(G_CONN_CLOSE);
   LCTValue := GetContentTypeValueBytes(AContentType, LCTAlloced);
   if not _StatusHasBody(AStatus) then ABodyLen := 0;
   LCLLen := DigitCount(ABodyLen);
@@ -478,8 +527,8 @@ var
   LEmitCL: Boolean;
 begin
   LStatusBytes := GetStatusLineBytes(AStatus);
-  if AKeepAlive then LConnBytes := G_CONN_KA
-  else LConnBytes := G_CONN_CLOSE;
+  if AKeepAlive then LConnBytes := CopyBytes(G_CONN_KA)
+  else LConnBytes := CopyBytes(G_CONN_CLOSE);
   LCTValue := GetContentTypeValueBytes(AContentType, LCTAlloced);
   LEmitCL  := _StatusHasBody(AStatus);
   if not LEmitCL then ABodyLen := 0;
@@ -528,7 +577,7 @@ begin
   Inc(LPos, Length(LConnBytes));
   if LExtraLen > 0 then
   begin
-    TEncoding.ASCII.GetBytes(LExtraStr, 1, LExtraLen, Result, LPos);
+    _AsciiBytesInto(LExtraStr, 1, LExtraLen, Result, LPos);
     Inc(LPos, LExtraLen);
   end;
   Move(G_CRLF[0], Result[LPos], Length(G_CRLF));
@@ -539,7 +588,7 @@ end;
 
 function DefaultErrorBody: TBytes;
 begin
-  Result := G_DEFAULT_ERROR_BODY;
+  Result := CopyBytes(G_DEFAULT_ERROR_BODY);
 end;
 
 initialization

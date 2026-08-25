@@ -104,6 +104,7 @@ type
     FPadIdle: array[0..14] of Integer;
     FSemaphore:     TSemaphore;
     FShutdown:      Integer;  // 0=running, 1=shutdown; atomic via TInterlocked
+    procedure _WarmUpThreadLocaleCache;
     procedure _WorkerLoop(ADequeIdx: Integer);
     procedure _SpawnWorker(ADequeIdx: Integer);
     function  _TrySteal(AMyIdx: Integer; out AWrapper: TWorkWrapper): Boolean;
@@ -132,7 +133,38 @@ uses
   Poseidon.Net.HttpServer,
   Poseidon.Net.ResponseBuilder;
 
+var
+  // #234: on POSIX, Delphi's case-insensitive string compare (AnsiCompareText
+  // and friends) is backed by ICU. The per-thread collator cache
+  // (System.Internal.ICU's CollatorCache) is a threadvar -- NOT shared, so
+  // that part is already safe by design. But that also means EVERY freshly
+  // spawned worker thread starts with an EMPTY cache, and its first
+  // case-insensitive compare (e.g. CORS middleware checking for a duplicate
+  // response header via TStrings.IndexOfName) falls through to the
+  // underlying native ICU library's OWN cold-start path (opening a
+  // collator for the first time), which touches genuinely process-shared
+  // native state (icu_XX::UnifiedCache) — confirmed via Helgrind to race
+  // there under load: many new workers spawned in a burst can all hit that
+  // native cold path concurrently. Serializing just the FIRST such call per
+  // worker thread (this lock) removes the concurrency without needing to
+  // touch or trust ICU's own internal locking.
+  GThreadLocaleWarmUpLock: TCriticalSection;
+
 { TElasticWorkerPool }
+
+// #234: forces this thread's own ICU collator cache to populate now, under
+// a process-wide lock, instead of letting it happen lazily and concurrently
+// with sibling worker threads doing the same the first time each of them
+// runs a case-insensitive string compare.
+procedure TElasticWorkerPool._WarmUpThreadLocaleCache;
+begin
+  GThreadLocaleWarmUpLock.Enter;
+  try
+    AnsiCompareText('Poseidon', 'poseidon');
+  finally
+    GThreadLocaleWarmUpLock.Leave;
+  end;
+end;
 
 constructor TElasticWorkerPool.Create(AMin, AMax, AIdleTimeoutMs: Integer);
 var
@@ -259,6 +291,7 @@ begin
   try
     // If shutdown happened between _SpawnWorker and here, exit immediately.
     if TInterlocked.Add(FShutdown, 0) <> 0 then Exit;
+    _WarmUpThreadLocaleCache;
     while True do
     begin
       // #224 root cause: the semaphore is a single global counter, not
@@ -494,5 +527,11 @@ begin
   // True only if no worker is still executing a (possibly stuck) handler.
   Result := TInterlocked.Add(FActiveWorkers, 0) = 0;
 end;
+
+initialization
+  GThreadLocaleWarmUpLock := TCriticalSection.Create;
+
+finalization
+  GThreadLocaleWarmUpLock.Free;
 
 end.
