@@ -1,4 +1,4 @@
-unit Poseidon.Compat.Posix;
+﻿unit Poseidon.Compat.Posix;
 
 // Free Pascal POSIX/Linux compatibility for the epoll / io_uring backends
 // (issue #5). Those units bind their own libc entry points (socket, bind,
@@ -45,8 +45,11 @@ type
   end;
   Psockaddr = ^sockaddr;
 
-  // C signal-handler function pointer (Delphi Posix.Signal.TSignalHandler).
+  // Mirrors Delphi Posix.Signal. siginfo_t is only passed through, never read.
   TSignalHandler = procedure(ASigNum: Integer); cdecl;
+  Psiginfo_t = Pointer;
+  TSigActionHandler = procedure(ASigNum: Integer; ASigInfo: Psiginfo_t;
+    AContext: Pointer); cdecl;
 
   // glibc x86-64 signal set (128 bytes) + sigaction struct. Field names/order
   // mirror Delphi's Posix.Signal.sigaction_t so GracefulReload compiles as-is.
@@ -56,7 +59,9 @@ type
 
   sigaction_t = record
     _u: record
-      sa_handler: TSignalHandler;   // union with sa_sigaction; handler used here
+      case Integer of
+        0: (sa_handler: TSignalHandler);
+        1: (sa_sigaction: TSigActionHandler);
     end;
     sa_mask:     sigset_t;
     sa_flags:    Integer;
@@ -77,6 +82,7 @@ const
   SIGTERM = 15;
   SIG_IGN = Pointer(1);   // ignore-signal sentinel (cast to TSignalHandler)
   SIG_DFL = Pointer(0);
+  SA_SIGINFO = 4;         // deliver siginfo/ucontext to a three-arg handler
 
 
   // errno values (Linux/x86-64 ABI)

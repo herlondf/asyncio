@@ -1,4 +1,4 @@
-unit Poseidon.Diagnostics;
+﻿unit Poseidon.Diagnostics;
 
 // Crash diagnostics — turns a fatal signal into a usable report instead of a
 // bare address.
@@ -23,9 +23,14 @@ unit Poseidon.Diagnostics;
 // backtrace_symbols_fd is specified as not calling malloc — unlike
 // backtrace_symbols, which does and must never be used here.
 //
-// After reporting, the default disposition is restored and the signal is
-// re-raised, so the process still dies with the original signal and the kernel
-// can still write a core dump. Nothing is swallowed.
+// After reporting, the signal goes to the handler installed before this one —
+// on a Delphi app that is the RTL's SignalDispatcher, which turns SIGSEGV/BUS/
+// FPE/ILL into EAccessViolation. A nil deref then reports its stack here and
+// fails as a 500 in that request, instead of taking the process down with it.
+//
+// SIGABRT is never delegated (glibc raises it with the heap already corrupt),
+// nor is a signal with no previous handler: those restore the default
+// disposition and re-raise, so the kernel can still write a core dump.
 //
 // For readable frames the binary needs symbols: link with -g (dcclinux64 keeps
 // them by default) and do NOT strip. Addresses still print without symbols.
@@ -86,8 +91,14 @@ procedure backtrace_symbols_fd(ABuffer: PPointer; ASize: Integer;
 function _syscall(ANum: NativeInt): NativeInt; cdecl varargs;
   external 'libc.so.6' name 'syscall';
 
+const
+  CHandledSignals: array[0..4] of Integer =
+    (SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL);
+
 var
   GInstalled: Integer = 0;
+  // Captured by sigaction's oldact at install time; read only from signal context.
+  GPrevAction: array[0..High(CHandledSignals)] of sigaction_t;
   // Pre-touched at install time so the first backtrace() inside the handler
   // cannot be the one that lazily loads libgcc's unwinder (which allocates).
   GWarmup: array[0..CMaxFrames - 1] of Pointer;
@@ -172,10 +183,32 @@ begin
     Result := 'unknown signal';
 end;
 
-procedure _CrashHandler(ASigNum: Integer); cdecl;
+function _SignalSlot(ASigNum: Integer): Integer;
+var
+  I: Integer;
+begin
+  Result := -1;
+  for I := 0 to High(CHandledSignals) do
+    if CHandledSignals[I] = ASigNum then
+      Exit(I);
+end;
+
+// Raw pointer compare so this does not depend on how SIG_DFL/SIG_IGN are typed
+// on Delphi vs FPC.
+function _HasPrevHandler(ASlot: Integer): Boolean;
+var
+  LPtr: Pointer;
+begin
+  LPtr := PPointer(@GPrevAction[ASlot]._u)^;
+  Result := (LPtr <> nil) and (NativeUInt(LPtr) <> 1);
+end;
+
+procedure _CrashHandler(ASigNum: Integer; ASigInfo: Psiginfo_t;
+  AContext: Pointer); cdecl;
 var
   LFrames: array[0..CMaxFrames - 1] of Pointer;
   LCount: Integer;
+  LSlot: Integer;
 begin
   _Emit(#10'=== POSEIDON CRASH REPORT (iid=');
   _Emit(PAnsiChar(@GInstanceId[0]));
@@ -196,8 +229,16 @@ begin
 
   _Emit('=== END CRASH REPORT ==='#10);
 
-  // Restore the default disposition and re-raise: the process must still die
-  // with the original signal so a core dump can still be produced.
+  LSlot := _SignalSlot(ASigNum);
+  if (ASigNum <> SIGABRT) and (LSlot >= 0) and _HasPrevHandler(LSlot) then
+  begin
+    if (GPrevAction[LSlot].sa_flags and SA_SIGINFO) <> 0 then
+      GPrevAction[LSlot]._u.sa_sigaction(ASigNum, ASigInfo, AContext)
+    else
+      GPrevAction[LSlot]._u.sa_handler(ASigNum);
+    Exit;
+  end;
+
   signal(ASigNum, TSignalHandler(SIG_DFL));
   __raise(ASigNum);
 end;
@@ -205,6 +246,7 @@ end;
 class procedure TPoseidonDiagnostics.InstallCrashHandler;
 var
   LSA: sigaction_t;
+  I: Integer;
 begin
   if TInterlocked.CompareExchange(GInstalled, 1, 0) <> 0 then Exit;
 
@@ -212,14 +254,13 @@ begin
   backtrace(@GWarmup[0], CMaxFrames);
 
   FillChar(LSA, SizeOf(LSA), 0);
-  LSA._u.sa_handler := @_CrashHandler;
-  LSA.sa_flags := 0;
+  LSA._u.sa_sigaction := @_CrashHandler;
+  // SA_SIGINFO: the RTL's handler is installed that way and reads the fault
+  // context, so delegating to it requires passing siginfo/ucontext through.
+  LSA.sa_flags := SA_SIGINFO;
   sigemptyset(LSA.sa_mask);
-  sigaction(SIGSEGV, @LSA, nil);
-  sigaction(SIGABRT, @LSA, nil);
-  sigaction(SIGBUS,  @LSA, nil);
-  sigaction(SIGFPE,  @LSA, nil);
-  sigaction(SIGILL,  @LSA, nil);
+  for I := 0 to High(CHandledSignals) do
+    sigaction(CHandledSignals[I], @LSA, @GPrevAction[I]);
 end;
 
 class function TPoseidonDiagnostics.CrashHandlerInstalled: Boolean;
