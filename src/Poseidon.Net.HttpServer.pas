@@ -1,7 +1,7 @@
-unit Poseidon.Net.HttpServer;
+﻿unit Poseidon.Net.HttpServer;
 
 // Native HTTP/1.1 server.
-// Windows: IOCP — WSARecv + single WSASend per response.
+// Windows: IOCP - WSARecv + single WSASend per response.
 // Linux:   epoll(7) level-triggered + EPOLLONESHOT.
 //
 // Critical optimization (both platforms):
@@ -60,17 +60,20 @@ type
     FActive: Boolean;
     FConnManager: TConnectionManager;
     FInFlightCount: Int64;
-    FPadInflight: array[0..6] of Int64; // Cache-line padding — isolate FInFlightCount
+    FPadInflight: array[0..6] of Int64; // Cache-line padding - isolate FInFlightCount
     FIdleTimeoutMs: Integer;
     // #233: watchdog for a handler stuck in normal operation (not just at
     // shutdown, where FDrainTimeoutMs already covers this). 0 = disabled.
     FMaxHandlerRunMs: Integer;
+    // #234 incident mitigation: see ShrinkAccumBufEnabled property.
+    FShrinkAccumBufEnabled: Boolean;
     FIdleSweep: TIdleSweepManager;
     FSSLManager: TSSLManager;
     FWSManager: TWebSocketManager;
     FH2Manager: THTTP2Manager;
     FWorkerCount: Integer;
     FMinWorkerCount: Integer;
+    FIOWorkerCount: Integer;
     FRequestPool: TElasticWorkerPool;
     FOnLog: TOnPoseidonLog;
     FOnRequestLog: TOnPoseidonRequestLog;
@@ -128,7 +131,7 @@ type
       out AAborted: Boolean);
     procedure _ProcessRecvPlain(AConn: Pointer; const ABuf: PByte; ALen: Cardinal);
 
-    procedure _DispatchAccumBuf(AConn: Pointer);  // thin shim — builds TDispatchConfig + calls FDispatcher
+    procedure _DispatchAccumBuf(AConn: Pointer);  // thin shim - builds TDispatchConfig + calls FDispatcher
     function  _BuildResponse(AStatus: Integer; const AContentType: string;
       const ABody: TBytes; AKeepAlive: Boolean;
       const AExtra: TArray<TPair<string,string>>): TBytes;
@@ -143,21 +146,20 @@ type
     procedure _SSLFlushWriteBio(AConn: Pointer);
 
 
-    // WS/H2 methods moved to managers — thin shims for adapter
     procedure _UpgradeToWS(AConn: Pointer; const AReq: TPoseidonNativeRequest);
     procedure _UpgradeToH2C(AConn: Pointer; const AReq: TPoseidonNativeRequest);
     function  _DispatchWSFrames(AConn: Pointer): Boolean;
     procedure _Log(ALevel: TLogLevel; const AMessage: string);
   public
     // ABufferPool, ASSLProvider: nil selects the built-in default
-    // (backward-compatible — existing code that calls Create without args unchanged).
+    // (backward-compatible - existing code that calls Create without args unchanged).
     constructor Create(
       ABufferPool:  IBufferPool  = nil;
       ASSLProvider: ISSLProvider = nil); overload;
     destructor  Destroy; override;
     procedure ConfigureSSL(const ACertFile, AKeyFile: string);
     procedure AddSSLCert(const AHostName, ACertFile, AKeyFile: string);
-    // S-5: enable mTLS — require client certificates signed by ACAFile (PEM CA bundle).
+    // S-5: enable mTLS - require client certificates signed by ACAFile (PEM CA bundle).
     // Must be called after ConfigureSSL and before Listen().
     procedure ConfigureMTLS(const ACAFile: string);
     procedure Listen(const AHost: string; APort: Integer;
@@ -172,14 +174,24 @@ type
     property IdleTimeoutMs: Integer read FIdleTimeoutMs write FIdleTimeoutMs;
     // #233: maximum time (ms) a request handler may run before the idle sweep
     // treats it as stuck and force-closes the CLIENT connection (leak-and-close,
-    // same pattern already used for #177/#224 — the worker thread itself is
+    // same pattern already used for #177/#224 - the worker thread itself is
     // never killed, only unblocked from the client's point of view). Checked
     // against LastActivityTick, which is refreshed when the worker actually
     // starts the dispatch. Default 0 = disabled (opt-in: existing deployments
-    // keep today's behavior — a handler stuck in normal operation runs
-    // forever — unless this is set explicitly).
+    // keep today's behavior - a handler stuck in normal operation runs
+    // forever - unless this is set explicitly).
     property MaxHandlerRunMs: Integer read FMaxHandlerRunMs write FMaxHandlerRunMs;
-    // Connection limits delegated to TConnectionManager
+    // #234 incident mitigation (2026-08-12): the idle-sweep shrinks an idle,
+    // fully-drained oversized AccumBuf back to tier 0 (see Poseidon.Net.IdleSweep
+    // SweepLoop) - a real memory-consumption fix (was written for exactly this:
+    // a connection that once handled one big request holding its peak buffer
+    // size forever otherwise). Root cause of #234 (production heap corruption)
+    // is unconfirmed, but this is the newest code touching AccumBuf's lifetime
+    // and stays a suspect. Default True (keeps the memory fix). Set False only
+    // on deployments under active #234 suspicion - set True (or leave default)
+    // on deployments that need the memory behavior and show no #234 symptoms.
+    property ShrinkAccumBufEnabled: Boolean
+      read FShrinkAccumBufEnabled write FShrinkAccumBufEnabled;
     property MaxConnections: Integer read GetMaxConnections write SetMaxConnections;
     property MaxConnectionsPerIP: Integer read GetMaxConnectionsPerIP write SetMaxConnectionsPerIP;
     // HTTP/2 via ALPN: when True and SSL is configured, the server negotiates "h2"
@@ -194,6 +206,10 @@ type
     // 0 = auto (same as IO workers: max(4, ProcessorCount*2) capped at 16).
     // Use MinWorkerCount to pre-warm the pool without setting a high max.
     property MinWorkerCount: Integer read FMinWorkerCount write FMinWorkerCount;
+    // IO-event threads (recv/send only, never handlers). 0 = auto: one per
+    // available CPU, capped at 16 - see the sizing comment in Listen. Raise it
+    // only with a measurement that justifies the tail cost.
+    property IOWorkerCount:  Integer read FIOWorkerCount  write FIOWorkerCount;
     // Live elastic-pool stats (diagnostic; #227). 0 before Listen() is called
     // (pool not created yet). Not persisted, not part of any wire protocol.
     property WorkerActiveCount: Integer read GetWorkerActiveCount;
@@ -254,7 +270,7 @@ type
     // SyncDispatch: execute request handlers directly on the IO/completion thread
     // instead of posting to the elastic worker pool. Eliminates the
     // completion<->pool hand-off (~2x throughput on the multi-ring io_uring
-    // backend) but BLOCKS that thread during handler execution — enable ONLY when
+    // backend) but BLOCKS that thread during handler execution - enable ONLY when
     // handlers are non-blocking (no DB, no file I/O, no Sleep). Default False
     // (async worker pool; safe for blocking handlers).
     // Orthogonal to FastPath: SyncDispatch chooses WHERE the pipeline runs
@@ -294,7 +310,7 @@ procedure ResetThreadDeferVars;
 implementation
 
 // R-1: platform-specific IO backend (IOCP on Windows, epoll/io_uring on Linux).
-// This is the only {$IFDEF} remaining in HttpServer — used solely to select the backend.
+// This is the only {$IFDEF} remaining in HttpServer - used solely to select the backend.
 {$IFDEF MSWINDOWS}
 uses
   Winapi.Windows,
@@ -319,23 +335,19 @@ uses
   Poseidon.Native.Types;
 {$ENDIF}
 
-// ===========================================================================
-// Shared constants
-// ===========================================================================
 
 const
   CMaxRequestSize = 8 * 1024 * 1024;
   CRecvBufSize = 32768;
   CAccumInitial = 8192;
-  CWorkerCountMin = 4;
-  // W15: cap auto-computed IO workers — ProcessorCount*2 on high-core machines
+  // W15: cap auto-computed IO workers - ProcessorCount*2 on high-core machines
   // (e.g. 100 logical → 200 threads) wasted stack with no throughput gain.
   // IO workers only handle I/O events (recv/send); request handlers run in
   // the elastic TElasticWorkerPool, so this cap can stay low.
   CWorkerCountMax = 16;
   // Default ceiling for the elastic request-worker pool. Pools start at
-  // min workers (4–16) and grow here only when all workers are busy.
-  // 200 × 8MB stack = 1.6GB — well within safe limits.
+  // min workers (4-16) and grow here only when all workers are busy.
+  // 200 × 8MB stack = 1.6GB - well within safe limits.
   CDefaultMaxWorkers = 200;
   // One health line per minute. Cheap enough to leave on by default (it reads
   // counters that already exist) and the trend it exposes is the difference
@@ -443,9 +455,6 @@ begin
 end;
 {$ENDIF}
 
-// ===========================================================================
-// Shared: SSL helpers — encrypt-and-send + handshake write-BIO flush
-// ===========================================================================
 
 procedure TPoseidonNativeServer._EncryptAndSend(AConn: Pointer;
   const AAppData: TBytes; AActualLen: Integer = 0);
@@ -480,7 +489,7 @@ begin
       _CloseConn(AConn);
       Exit;
     end;
-    // P-4: pool buffer fully consumed by SSL_Write — release it before BIO_Read
+    // P-4: pool buffer fully consumed by SSL_Write - release it before BIO_Read
     if AActualLen > 0 then
     begin
       LTmp := AAppData;
@@ -527,7 +536,7 @@ begin
 
   if LConn.SSLHandle <> nil then
   begin
-    // SSL requires contiguous data — concatenate and encrypt
+    // SSL requires contiguous data - concatenate and encrypt
     LConcat := FBufferPool.Acquire(LHLen + LBLen);
     if LHLen > 0 then Move(AHeaders[0], LConcat[0], LHLen);
     if LBLen > 0 then Move(ABody[0], LConcat[LHLen], LBLen);
@@ -541,9 +550,6 @@ begin
     FIOBackend.PostSendV(AConn, AHeaders, LHLen, ABody, LBLen);
 end;
 
-// ===========================================================================
-// Deferred responses — TPoseidonResponder + Ctx.Defer hook
-// ===========================================================================
 
 // Per-thread deferral context. Set by TServerDispatchAdapter.InvokeRequest
 // around the handler call so Ctx.Defer (via GPoseidonDeferHook -> _DeferHook)
@@ -598,7 +604,7 @@ type
   // Completes a deferred HTTP/1.1 response. Bound to a connection at Defer time,
   // it keeps that connection alive (AddRef), exempt from the idle sweep
   // (InFlightPool) and counted for backpressure (FInFlightCount) until the app
-  // responds — from ANY thread — or drops the handle (force-close fallback).
+  // responds - from ANY thread - or drops the handle (force-close fallback).
   TPoseidonResponder = class(TInterfacedObject, IPoseidonResponder)
   private
     FConn:      Pointer;
@@ -713,7 +719,7 @@ begin
   Respond(AStatus, 'text/plain', PoseidonUTF8Bytes(AMessage), nil);
 end;
 
-// GPoseidonDeferHook target — mints a responder bound to the connection being
+// GPoseidonDeferHook target - mints a responder bound to the connection being
 // dispatched on the calling thread. Reads the per-thread deferral context set
 // by TServerDispatchAdapter.InvokeRequest.
 function _DeferHook(const ABaseExtra: TArray<TPair<string,string>>):
@@ -746,9 +752,6 @@ begin
   _PostSend(AConn, LEnc);
 end;
 
-// ===========================================================================
-// R-5: TServerDispatchAdapter — IDispatchCallbacks bridge from server to dispatcher
-// ===========================================================================
 
 type
   TServerDispatchAdapter = class(TInterfacedObject, IDispatchCallbacks)
@@ -795,7 +798,7 @@ begin
   FServer._EncryptAndSend(AConn, AData, AActualLen);
 end;
 
-// Vectored send — SSL falls back to concatenation, plain uses PostSendV
+// Vectored send - SSL falls back to concatenation, plain uses PostSendV
 procedure TServerDispatchAdapter.SendResponseV(AConn: Pointer;
   const AHeaders: TBytes; AHdrLen: Integer;
   const ABody: TBytes; ABodyLen: Integer);
@@ -836,7 +839,6 @@ begin
   SetLength(AExtra, 0);
   ADeferred    := False;
 
-  // Publish the deferral context for this thread (save prior for reentrancy).
   LSaveConn   := GDeferConn;
   LSaveServer := GDeferServer;
   LSaveKA     := GDeferKeepAlive;
@@ -891,9 +893,6 @@ begin
     TInterlocked.Decrement(FServer.FInFlightCount);
 end;
 
-// ===========================================================================
-// R-1: TServerIOAdapter — IIOCallbacks bridge from IO backend to server
-// ===========================================================================
 
 type
   TServerIOAdapter = class(TInterfacedObject, IIOCallbacks)
@@ -937,16 +936,16 @@ begin
   // re-triggering the same protocol violation over and over.
   if TInterlocked.Add(LConn.Closed, 0) <> 0 then Exit;
 
-  // During TLS handshake: keep alive regardless of KeepAlive flag —
+  // During TLS handshake: keep alive regardless of KeepAlive flag -
   // we need to re-arm recv for the next handshake message.
   if (LConn.SSLHandle <> nil) and not LConn.SSLHandshook then
     FServer._PostRecv(AConn)
-  // #213: HTTP/2 drives its own read cycle — StepH2Branch re-arms recv once,
+  // #213: HTTP/2 drives its own read cycle - StepH2Branch re-arms recv once,
   // AFTER TH2Conn.ProcessData fully returns. On the epoll backend a response
   // send inside ProcessData completes inline and lands here synchronously while
   // the worker is still in ProcessData; re-arming recv now would let a second
   // recv run _ProcessRecvSSL (SSL_Read) concurrently with the worker's
-  // _EncryptAndSend (SSL_Write) on the same SSL* / H2Conn. Skip — the dispatch
+  // _EncryptAndSend (SSL_Write) on the same SSL* / H2Conn. Skip - the dispatch
   // path owns the re-arm.
   else if LConn.H2Conn <> nil then
     // no-op: StepH2Branch.PostRecv handles it
@@ -966,11 +965,8 @@ begin
   FServer._CloseConn(AConn);
 end;
 
-// ===========================================================================
-// Shared: ConfigureSSL — call before Listen() to enable HTTPS
-// ===========================================================================
+// Shared: ConfigureSSL - call before Listen() to enable HTTPS
 
-// SSL config delegated to TSSLManager
 procedure TPoseidonNativeServer.ConfigureSSL(const ACertFile, AKeyFile: string);
 begin
   if FActive then
@@ -992,9 +988,6 @@ begin
   FSSLManager.AddSSLCert(AHostName, ACertFile, AKeyFile);
 end;
 
-// ===========================================================================
-// Shared: _BuildResponse — delegates to Poseidon.Net.ResponseBuilder (R-3)
-// ===========================================================================
 
 function TPoseidonNativeServer._BuildResponse(AStatus: Integer;
   const AContentType: string; const ABody: TBytes; AKeepAlive: Boolean;
@@ -1004,14 +997,12 @@ begin
     AExtra, FSecureHeadersEnabled, FServerBanner);
 end;
 
-// ===========================================================================
 // Shared: _ProcessRecv and helpers
 // _ProcessRecv is the entry point called by the platform worker (IOCP/epoll).
 // It delegates to three focused methods:
-//   _ProcessRecvSSL  — feeds bytes into the OpenSSL BIO pair and drains plaintext
-//   _ProcessRecvPlain — accumulates plain-HTTP bytes into AccumBuf
-//   _DispatchAccumBuf — routes the accumulated buffer to H2/WS/HTTP1 handlers
-// ===========================================================================
+//   _ProcessRecvSSL  - feeds bytes into the OpenSSL BIO pair and drains plaintext
+//   _ProcessRecvPlain - accumulates plain-HTTP bytes into AccumBuf
+//   _DispatchAccumBuf - routes the accumulated buffer to H2/WS/HTTP1 handlers
 
 procedure TPoseidonNativeServer._ProcessRecvSSL(AConn: Pointer;
   const ABuf: PByte; ALen: Cardinal; out AAborted: Boolean);
@@ -1025,7 +1016,6 @@ var
 begin
   AAborted := False;
 
-  // Feed encrypted bytes into the ReadBio
   if (ALen > 0) and
      (FSSLProvider.BIOWrite(LConn.SSLReadBio, ABuf, ALen) <= 0) then
   begin
@@ -1040,7 +1030,6 @@ begin
     if LHsRet = 1 then
     begin
       LConn.SSLHandshook := True;
-      // ALPN: if client negotiated "h2", create TH2Conn for this connection.
       if FH2Manager.H2Enabled and (FSSLProvider.GetSelectedProtocol(LConn.SSLHandle) = 'h2') then
       begin
         LConn.H2Conn := TH2Conn.Create(AConn, FH2Manager.H2Send, FH2Manager.H2Close, FH2Manager.H2OnRequest,
@@ -1073,7 +1062,6 @@ begin
     end;
   end;
 
-  // Drain decrypted application data into AccumBuf
   repeat
     LDecN := FSSLProvider.SSLRead(LConn.SSLHandle, @LDecBuf[0], CRecvBufSize);
     if LDecN > 0 then
@@ -1124,8 +1112,8 @@ end;
 // FPC async dispatch job. The Delphi build posts a capturing anonymous method
 // to the worker pool; FPC 3.3.1 (trunk) AVs when that closure is constructed on
 // an IOCP worker thread (a compiler codegen bug). This heap job carries the
-// same state in explicit fields and is posted as a plain method reference —
-// no capture — sidestepping the bug. It frees itself when the work completes.
+// same state in explicit fields and is posted as a plain method reference -
+// no capture - sidestepping the bug. It frees itself when the work completes.
 type
   TFPCDispatchJob = class
   public
@@ -1161,7 +1149,7 @@ procedure TPoseidonNativeServer._DispatchAccumBuf(AConn: Pointer);
 // boundary: the connection stays alive until the pool worker's finally runs.
 //
 // R-5 backpressure: FInFlightCount is incremented HERE (queue time) and
-// decremented in the pool worker's finally — so it counts queued + executing
+// decremented in the pool worker's finally - so it counts queued + executing
 // tasks, not just executing ones.  This prevents the elastic pool's task queue
 // from growing unboundedly when all workers are blocked on DB acquisition.
 var
@@ -1171,7 +1159,7 @@ var
   LJob:  TFPCDispatchJob;
 {$ENDIF}
 begin
-  // R-5: pre-queue backpressure — reject with 503 before queuing when the
+  // R-5: pre-queue backpressure - reject with 503 before queuing when the
   // number of in-flight (queued + executing) tasks reaches MaxQueueDepth.
   // Force-close the connection (KeepAlive := False) so the client does not
   // immediately retry on the same socket and worsen the overload.
@@ -1196,7 +1184,7 @@ begin
   LCfg.MaxQueueDepth        := 0;           // consumed here; Dispatcher needs no copy
   LCfg.InFlightCount        := nil;         // ditto
 
-  // v2-perf: SyncDispatch — execute directly on IO thread, skip worker pool.
+  // v2-perf: SyncDispatch - execute directly on IO thread, skip worker pool.
   // Eliminates thread transition overhead (~50-100us per request).
   if FSyncDispatch then
   begin
@@ -1207,7 +1195,7 @@ begin
 
   // Count this task as in-flight from queue time.  The finally in the pool
   // worker decrements it after Dispatch returns, ensuring the counter always
-  // reflects queued + executing work — making the pre-queue check above
+  // reflects queued + executing work - making the pre-queue check above
   // accurate across all concurrent _DispatchAccumBuf callers.
   TInterlocked.Increment(FInFlightCount);
 
@@ -1216,11 +1204,11 @@ begin
   // lambda N+1 being posted while lambda N is still in its finally block.
   // Using a counter ensures the idle-sweep skips the connection as long as ANY
   // pool lambda is live.  LastActivity is refreshed when the worker actually
-  // starts — prevents queue-wait time from counting toward the idle timeout.
+  // starts - prevents queue-wait time from counting toward the idle timeout.
   TInterlocked.Increment(TNativeConn(AConn).InFlightPool);
   TNativeConn(AConn).AddRef;
 {$IFDEF FPC}
-  // FPC: post a non-capturing method (heap job) — see TFPCDispatchJob. The job
+  // FPC: post a non-capturing method (heap job) - see TFPCDispatchJob. The job
   // owns the same teardown (Decrement FInFlightCount/InFlightPool, Release) and
   // frees itself. AddRef above keeps LConn alive until the job's Release.
   LJob := TFPCDispatchJob.Create;
@@ -1259,7 +1247,7 @@ var
   LConn:    TNativeConn absolute AConn;
   LAborted: Boolean;
 begin
-  // #213: hold a ref across the whole call — a nested _CloseConn (SSL/parse
+  // #213: hold a ref across the whole call - a nested _CloseConn (SSL/parse
   // error paths) can drop the last (server) ref and Destroy the connection
   // (the epoll backend keeps no per-recv ref), which would free LConn.Lock out
   // from under the finally below.
@@ -1270,7 +1258,7 @@ begin
     LConn.Lock.Enter;
     try
       try
-        LConn.LastActivityTick := TThread.GetTickCount64;  // vDSO on Linux — no syscall
+        LConn.LastActivityTick := TThread.GetTickCount64;  // vDSO on Linux - no syscall
         LAborted := False;
         if LConn.SSLHandle <> nil then
           _ProcessRecvSSL(AConn, ABuf, ALen, LAborted)
@@ -1294,9 +1282,7 @@ begin
   end;
 end;
 
-// ===========================================================================
 // Shared: connection-limit admission
-// ===========================================================================
 
 // Connection limit getters/setters delegate to FConnManager
 function TPoseidonNativeServer.GetMaxConnections: Integer;
@@ -1374,9 +1360,7 @@ begin Result := FH2Manager.OnH2Push; end;
 procedure TPoseidonNativeServer.SetOnH2Push(AValue: TOnH2Push);
 begin FH2Manager.OnH2Push := AValue; end;
 
-// ===========================================================================
-// Shared: lifecycle (constructor/destructor) — must precede any Listen path
-// ===========================================================================
+// Shared: lifecycle (constructor/destructor) - must precede any Listen path
 
 procedure TPoseidonNativeServer.SetSyncDispatch(AValue: Boolean);
 begin
@@ -1384,7 +1368,7 @@ begin
     Exit;
   // SyncDispatch only chooses inline vs pool at dispatch time; it does not change
   // the pipeline object, so no rebuild is needed. Still deny the change under
-  // traffic — a request may be mid-dispatch on the old routing.
+  // traffic - a request may be mid-dispatch on the old routing.
   if FActive then
     raise Exception.Create(
       'TPoseidonNativeServer: SyncDispatch cannot be changed while active');
@@ -1396,7 +1380,7 @@ begin
   if FFastPath = AValue then
     Exit;
   // FastPath selects the pipeline (lightweight vs full), baked into the step
-  // array at construction — rebuild the dispatcher. Swapping FDispatcher under
+  // array at construction - rebuild the dispatcher. Swapping FDispatcher under
   // traffic is a UAF (a worker may still deref the old one), so deny while active.
   if FActive then
     raise Exception.Create(
@@ -1428,6 +1412,7 @@ begin
   FDrainTimeoutMs := CDefaultDrainTimeoutMs;
   FDrainEvent := TEvent.Create(nil, True, False, '');
   FMaxQueueDepth := 0;
+  FShrinkAccumBufEnabled := True;
   FSecureHeadersEnabled := False;
   FServerBanner := 'Poseidon/1.0';
   FTCPFastOpen := False;
@@ -1435,7 +1420,7 @@ begin
   // FPC defaults to SyncDispatch (inline dispatch on the IO thread). The async
   // worker-pool path relies on FPC 3.3.1 (trunk) function-reference/anonymous-
   // method machinery whose closure codegen and thread-startup ordering are
-  // buggy under FPC; SyncDispatch — the v2 high-performance mode — uses neither
+  // buggy under FPC; SyncDispatch - the v2 high-performance mode - uses neither
   // and runs clean. Delphi keeps async by default. FPC callers can still opt
   // into async via SyncDispatch := False (best-effort under current FPC).
   {$IFDEF FPC}
@@ -1457,7 +1442,7 @@ begin
     procedure(AConn: Pointer) begin _CloseConn(AConn); end,
     procedure(AConn: Pointer) begin _PostRecv(AConn); end);
   FDispatcher := TProtocolDispatcher.Create(TServerDispatchAdapter.Create(Self), FFastPath);
-  // Create platform IO backend — ONLY {$IFDEF} remaining in HttpServer.
+  // Create platform IO backend - ONLY {$IFDEF} remaining in HttpServer.
   // Windows: IOCP by default (AcceptEx + SO_UPDATE_ACCEPT_CONTEXT + WSARecv;
   //   loads AcceptEx via WSAIoctl with a static mswsock fallback, so it works
   //   even where a Winsock LSP rejects SIO_GET_EXTENSION_FUNCTION_POINTER). RIO
@@ -1528,11 +1513,9 @@ begin
   inherited Destroy;
 end;
 
-// ===========================================================================
-// Shared: WebSocket — upgrade, frame dispatch, handler registration
-// ===========================================================================
+// Shared: WebSocket - upgrade, frame dispatch, handler registration
 
-// Thin shims — delegate to managers
+// Thin shims - delegate to managers
 procedure TPoseidonNativeServer._UpgradeToWS(AConn: Pointer;
   const AReq: TPoseidonNativeRequest);
 begin
@@ -1567,22 +1550,14 @@ begin
   FWSManager.RegisterHandler(APath, AHandler);
 end;
 
-// ===========================================================================
-// Shared: _IdleSweepLoop
-// Runs every 1s. For each connection idle longer than FIdleTimeoutMs, calls
-// shutdown() on the socket — pending recv/send completes with error and the
-// normal worker path tears the connection down via _CloseConn.
-// ===========================================================================
 
 // _IdleSweepLoop moved to TIdleSweepManager
 
-// ===========================================================================
 // R-1: Platform-agnostic Listen / Stop / _OnNewSocket / _PostRecv / _PostSend
-//      / _CloseConn — all IO operations delegated to FIOBackend.
-// ===========================================================================
+//      / _CloseConn - all IO operations delegated to FIOBackend.
 
 // Current process resident set size, in KB. -1 if it could not be read.
-// Read fresh every call (no caching) — this is the periodic heartbeat, at
+// Read fresh every call (no caching) - this is the periodic heartbeat, at
 // most once every few seconds, not a hot-path call.
 function TPoseidonNativeServer._GetProcessRSSKB: Int64;
 {$IFDEF MSWINDOWS}
@@ -1633,20 +1608,20 @@ end;
 {$ENDIF}
 
 // Periodic health line. Every value here is already tracked for other reasons,
-// so this adds nothing to the request path — it only makes the trend visible.
+// so this adds nothing to the request path - it only makes the trend visible.
 // A server that logs only at startup leaves operators with no way to tell a
 // crash from a slow slide into saturation: worker pool growth, connection
 // build-up and in-flight backlog are exactly what precede one. rss_kb closes
 // the gap this class of investigation kept hitting: correlating a specific
 // moment's conn/pool/inflight shape against actual memory used required an
 // external `docker stats` sample that was never at the same instant as the
-// log line — now it is the same line.
+// log line - now it is the same line.
 procedure TPoseidonNativeServer._EmitHeartbeat;
 var
   LAlive: Integer;
   LIdle: Integer;
 begin
-  // ActiveWorkers counts every thread ALIVE, idle ones included — reporting it
+  // ActiveWorkers counts every thread ALIVE, idle ones included - reporting it
   // as "active" reads as "busy" and would mislead exactly when it matters. The
   // actionable number is the difference: busy climbing toward pool, while pool
   // itself climbs toward its ceiling, is the saturation slide.
@@ -1683,29 +1658,54 @@ begin
   // Wire WS manager log
   FWSManager.OnLog := FOnLog;
 
-  // IO tier: small fixed pool — handles kernel I/O events only (recv/send).
-  // W14: ProcessorCount×2 wins ~50% at c=100; cap at 16 to avoid stack waste.
-  // IO workers no longer run blocking handlers, so the cap stays low safely.
-  // #231 follow-up: use the CFS-quota-aware count on Linux, not raw
-  // ProcessorCount -- see _EffectiveProcessorCount for why (severe IO-worker
-  // oversubscription under a Docker/Kubernetes CPU limit otherwise).
-  LIOWorkers := Min(Max(CWorkerCountMin, {$IFNDEF MSWINDOWS}_EffectiveProcessorCount{$ELSE}TThread.ProcessorCount{$ENDIF} * 2),
-                    CWorkerCountMax);
-  // Per-core accept — one listen socket + accept thread per CPU core
+  // IO tier: small fixed pool - handles kernel I/O events only (recv/send).
+  // One worker per available CPU. Each worker owns an epoll fd and a
+  // SO_REUSEPORT listen socket, so a worker that cannot be scheduled leaves its
+  // share of connections waiting behind a runnable-but-not-running thread -
+  // which shows up as tail latency, not as lost throughput.
+  //
+  // The earlier ProcessorCount×2 (floor 4) was measured on a machine with cores
+  // to spare, where the extra workers were free. Under a container CPU limit
+  // they are not, and oversubscription costs exactly what the shape above
+  // predicts. Measured on the mixed plaintext/json/json-large workload,
+  // wrk -t8 -c200, medians over repeated runs in both orderings:
+  //
+  //   2 CPUs: 4 workers -> p99 10.7ms | 2 workers -> p99 6.1ms  (-43%)
+  //   4 CPUs: 8 workers -> p99  9.2ms | 4 workers -> p99 3.0ms  (-67%)
+  //
+  // Throughput was a tie in both (within 2%). The trade is p50: it rises
+  // (1.26 -> 2.05ms at 4 CPUs), because fewer workers means less overlap on the
+  // common path. Tail wins over median here - a p99 three times lower is worth
+  // 0.8ms of median. Set IOWorkerCount to override.
+  //
+  // Nothing changes on a big host: at 16+ CPUs the cap already decided both.
+  // #231 follow-up: the count is CFS-quota-aware on Linux, not raw
+  // ProcessorCount -- see _EffectiveProcessorCount.
+  if FIOWorkerCount > 0 then
+    LIOWorkers := Min(FIOWorkerCount, CWorkerCountMax)
+  else
+    LIOWorkers := Min(Max(1, {$IFNDEF MSWINDOWS}_EffectiveProcessorCount{$ELSE}TThread.ProcessorCount{$ENDIF}),
+                      CWorkerCountMax);
+  // Per-core accept - one listen socket + accept thread per CPU core
   if FPerCoreAccept then
     LAcceptN := {$IFNDEF MSWINDOWS}_EffectiveProcessorCount{$ELSE}TThread.ProcessorCount{$ENDIF}
   else
     LAcceptN := 1;
-  // Request tier: elastic pool — runs blocking handlers (DB, ACBr, etc.).
+  // Request tier: elastic pool - runs blocking handlers (DB, ACBr, etc.).
   // Starts with LMinReq threads (fast debugger startup), grows to LMaxReq.
-  // #219: MUST be created before StartListening below — once accept/IO
+  // #219: MUST be created before StartListening below - once accept/IO
   // threads are running, an IO worker can race in with the very first
   // recv and call _DispatchAccumBuf -> FRequestPool.Post before this
   // assignment lands, dereferencing a still-nil FRequestPool (reproduced
   // deterministically on Windows/IOCP+FPC, where thread start-up is fast
   // enough to win the race on request #1).
   LMinReq := FMinWorkerCount;
-  if LMinReq <= 0 then LMinReq := LIOWorkers;   // default: same as IO workers
+  // Tracks LIOWorkers on purpose. Pinning this to a floor of 4 while the IO tier
+  // dropped to one-per-CPU was measured at 19-21k req/s against 35-37k for the
+  // old sizing: on a 2-CPU box, 4 pool threads against 2 IO threads starves the
+  // side that actually drives the sockets. The two tiers have to be sized
+  // together, not independently.
+  if LMinReq <= 0 then LMinReq := LIOWorkers;
   LMaxReq := FWorkerCount;
   if LMaxReq <= 0 then LMaxReq := CDefaultMaxWorkers;  // default: 200
   FRequestPool := TElasticWorkerPool.Create(LMinReq, LMaxReq,
@@ -1736,7 +1736,7 @@ begin
   FIOBackend.StartListening(AHost, APort, LIOWorkers, FTCPFastOpen,
     TServerIOAdapter.Create(Self), LAcceptN);
 
-  // AOnListen fires here — server is functional (workers + accept running).
+  // AOnListen fires here - server is functional (workers + accept running).
   // Sweep is intentionally started after: if AOnListen blocks (e.g. Readln),
   // sweep still starts when Listen() resumes instead of never starting.
   if Assigned(AOnListen) then
@@ -1746,8 +1746,9 @@ begin
   FIdleSweep := TIdleSweepManager.Create(FConnManager, FIOBackend, @FActive);
   FIdleSweep.IdleTimeoutMs := FIdleTimeoutMs;
   FIdleSweep.MaxHandlerRunMs := FMaxHandlerRunMs;
+  FIdleSweep.ShrinkAccumBufEnabled := FShrinkAccumBufEnabled;
   FIdleSweep.OnLog := FOnLog;
-  FIdleSweep.OnForceClose := _CloseConn;  // #224 mitigation — see IdleSweep.pas
+  FIdleSweep.OnForceClose := _CloseConn;  // #224 mitigation - see IdleSweep.pas
   FIdleSweep.HeartbeatMs := FHeartbeatMs;
   FIdleSweep.OnHeartbeat := _EmitHeartbeat;
   FIdleSweep.Start;
@@ -1756,7 +1757,7 @@ end;
 procedure TPoseidonNativeServer.Stop;
 const
   CDrainPollMs = 50;
-  // #223: once FInFlightCount reaches 0, no live request needs protecting —
+  // #223: once FInFlightCount reaches 0, no live request needs protecting -
   // cap how much longer we wait for stragglers to close themselves.
   CPostIdleCloseGraceMs = 2000;
 var
@@ -1772,14 +1773,13 @@ begin
   if not FActive then Exit;
   FActive := False;
 
-  // Stop idle sweep
   if Assigned(FIdleSweep) then
     FIdleSweep.Stop;
 
   // 1) Stop accept + close listen socket.
   FIOBackend.StopAccept;
 
-  // 2) Signal every client socket — pending recv/send complete with error,
+  // 2) Signal every client socket - pending recv/send complete with error,
   // workers call _CloseConn and remove the conn from FConnList.
   // ResetEvent BEFORE we shutdown any conn so we don't miss the last
   // SetEvent from _CloseConn racing with our reset.
@@ -1791,7 +1791,7 @@ begin
     TNativeConn(LSnap[I]).Release;  // drop snapshot ref
   end;
 
-  // 3) Drain worker pool — wait for BOTH FInFlightCount and connection count
+  // 3) Drain worker pool - wait for BOTH FInFlightCount and connection count
   // to reach 0. Manual-reset event is signaled by every _CloseConn; we
   // re-check the condition on each wake because a single signal doesn't
   // mean fully drained (single-fire trap: late worker would find a
@@ -1806,10 +1806,10 @@ begin
     begin
       // No dispatch is actively using any connection any more. A survivor at
       // this point is either an idle keep-alive or one whose ShutdownConn
-      // (issued above, or by a dropped Ctx.Defer responder — see
+      // (issued above, or by a dropped Ctx.Defer responder - see
       // TPoseidonResponder.Teardown) is waiting for a completion that may
-      // never come, because IdleSweep — the only other thing that would
-      // eventually force-close it — was just stopped a few lines up. Give
+      // never come, because IdleSweep - the only other thing that would
+      // eventually force-close it - was just stopped a few lines up. Give
       // survivors a short grace to close themselves instead of burning the
       // full FDrainTimeoutMs; step 5 below force-closes anything still
       // registered afterward regardless, so this cannot skip real cleanup.
@@ -1824,7 +1824,7 @@ begin
     FDrainEvent.ResetEvent;
   end;
 
-  // 4) Drain request pool — pool workers may still be in blocking handlers
+  // 4) Drain request pool - pool workers may still be in blocking handlers
   // (including slow TLS handshake). They MUST finish before we free any
   // SSL handle, otherwise a worker mid-handshake dereferences a freed SSL*.
   LDrained := True;
@@ -1850,13 +1850,13 @@ begin
     begin
       LConn := TNativeConn(FConnManager.ConnList[0]);
       // #M9: go through Remove (not ConnList.Delete) so the per-IP counter is
-      // decremented — otherwise a Stop() with stragglers orphans those IP counts
+      // decremented - otherwise a Stop() with stragglers orphans those IP counts
       // and, after a Stop->Listen, MaxConnectionsPerIP eventually rejects real
       // clients. Lock is recursive so re-entering it here is safe.
       FConnManager.Remove(LConn);
       // #177: only free the SSL handle when the pool fully drained. If a
       // straggler worker is still running, it may dereference SSLHandle in
-      // _EncryptAndSend after SSL_free — freeing here would be a UAF. On the
+      // _EncryptAndSend after SSL_free - freeing here would be a UAF. On the
       // timeout path we leak the handle (process is exiting) instead.
       if LDrained and (LConn.SSLHandle <> nil) then
       begin
@@ -1890,8 +1890,8 @@ begin
       FSSLManager.SetupServerBIOs(LConn.SSLHandle,
         LConn.SSLReadBio, LConn.SSLWriteBio);
     except
-      FIOBackend.SocketClose(LConn);  // epoll DEL silently fails (ENOENT) — harmless
-      LConn.Release;  // Never registered — drop server ref directly
+      FIOBackend.SocketClose(LConn);  // epoll DEL silently fails (ENOENT) - harmless
+      LConn.Release;  // Never registered - drop server ref directly
       Exit;
     end;
   end;
@@ -1900,14 +1900,14 @@ begin
   begin
     if LConn.SSLHandle <> nil then FSSLManager.FreeSSL(LConn.SSLHandle);
     FIOBackend.SocketClose(LConn);
-    LConn.Release;  // Never registered — drop server ref directly
+    LConn.Release;  // Never registered - drop server ref directly
     Exit;
   end;
   try
     FIOBackend.RegisterConn(LConn);
     FIOBackend.PostRecv(LConn);
   except
-    // RegisterConn/PostRecv failure — undo admission and close.
+    // RegisterConn/PostRecv failure - undo admission and close.
     // Closing the socket is mandatory: skipping it leaks the fd and under
     // DoS exhausts the process fd table.
     FConnManager.Remove(LConn);
@@ -1961,7 +1961,7 @@ begin
     // _EncryptAndSend -> _CloseConn), so freeing TH2Conn now would pull the
     // object out from under _DispatchStream / ProcessData still on the stack,
     // and its finally (FStreams.Remove) would fault on the freed dictionary.
-    // TNativeConn.Destroy frees H2Conn instead — it runs only at refcount 0,
+    // TNativeConn.Destroy frees H2Conn instead - it runs only at refcount 0,
     // after the in-flight worker's Release, so no H2Conn method is live.
     if LConn.SSLHandle <> nil then
     begin

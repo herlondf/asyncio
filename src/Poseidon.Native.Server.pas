@@ -1,6 +1,6 @@
-unit Poseidon.Native.Server;
+﻿unit Poseidon.Native.Server;
 
-// TPoseidonServer — instance-based native API.
+// TPoseidonServer - instance-based native API.
 //
 // Zero-copy hot path: TNativeRequestContext is stack-allocated,
 // no WebBroker objects, no pool round-trips, no per-request closures.
@@ -66,6 +66,8 @@ type
     procedure SetWorkerCount(AValue: Integer);
     function GetMinWorkerCount: Integer;
     procedure SetMinWorkerCount(AValue: Integer);
+    function GetIOWorkerCount: Integer;
+    procedure SetIOWorkerCount(AValue: Integer);
     function GetWorkerActiveCount: Integer;
     function GetWorkerIdleCount: Integer;
     function GetIdleTimeoutMs: Integer;
@@ -100,7 +102,6 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    // --- Route registration (fluent API) ---
     function Get(const APath: string; AHandler: TNativeHandler): TPoseidonServer; overload;
     function Get(const APath: string; AHandler: TNativeHandlerFunc): TPoseidonServer; overload;
     function Post(const APath: string; AHandler: TNativeHandler): TPoseidonServer; overload;
@@ -116,41 +117,37 @@ type
     function All(const APath: string; AHandler: TNativeHandler): TPoseidonServer; overload;
     function All(const APath: string; AHandler: TNativeHandlerFunc): TPoseidonServer; overload;
 
-    // --- Global middleware ---
     function Use(AMiddleware: TNativeMiddleware): TPoseidonServer; overload;
     function Use(AMiddleware: TNativeMiddlewareFunc): TPoseidonServer; overload;
 
-    // --- Route groups ---
     function Group(const APrefix: string): TNativeGroup;
     procedure GroupBlock(const APrefix: string; ABlock: TNativeGroupBlock);
 
-    // --- WebSocket ---
     procedure WebSocket(const APath: string; AHandler: TWSMessageCallback);
 
-    // --- Lifecycle ---
     procedure Listen(APort: Integer; const AHost: string = '0.0.0.0';
       AOnListen: TProc = nil);
     procedure Stop;
 
-    // --- Config (delegates to TPoseidonNativeServer) ---
     procedure ConfigureSSL(const ACertFile, AKeyFile: string);
     procedure AddSSLCert(const AHostName, ACertFile, AKeyFile: string);
     procedure ConfigureMTLS(const ACAFile: string);
     procedure EnableHTTP2(AEnabled: Boolean = True);
 
-    // --- Properties ---
     property Server: TPoseidonNativeServer read FServer;
     property Running: Boolean read FRunning;
     property MaxConnections: Integer read GetMaxConnections write SetMaxConnections;
     property MaxConnectionsPerIP: Integer read GetMaxConnectionsPerIP write SetMaxConnectionsPerIP;
     property WorkerCount: Integer read GetWorkerCount write SetWorkerCount;
     property MinWorkerCount: Integer read GetMinWorkerCount write SetMinWorkerCount;
+    // IO-event threads. 0 = auto (one per available CPU, capped at 16).
+    property IOWorkerCount: Integer read GetIOWorkerCount write SetIOWorkerCount;
     property WorkerActiveCount: Integer read GetWorkerActiveCount;
     property WorkerIdleCount: Integer read GetWorkerIdleCount;
     property IdleTimeoutMs: Integer read GetIdleTimeoutMs write SetIdleTimeoutMs;
     // #233: maximum time (ms) a request handler may run before it is treated
     // as stuck and its connection is force-closed (worker thread itself is
-    // never killed). Default 0 = disabled — opt-in.
+    // never killed). Default 0 = disabled - opt-in.
     property MaxHandlerRunMs: Integer read GetMaxHandlerRunMs write SetMaxHandlerRunMs;
     // #234 incident mitigation: see TPoseidonNativeServer.ShrinkAccumBufEnabled
     // (Poseidon.Net.HttpServer). Default True. Must be set before Listen().
@@ -204,9 +201,6 @@ begin
     Move(ASrc[0], Result[0], Length(ASrc));
 end;
 
-// ---------------------------------------------------------------------------
-// Constructor / Destructor
-// ---------------------------------------------------------------------------
 
 constructor TPoseidonServer.Create;
 begin
@@ -229,9 +223,6 @@ begin
   inherited Destroy;
 end;
 
-// ---------------------------------------------------------------------------
-// Route registration
-// ---------------------------------------------------------------------------
 
 function TPoseidonServer.AddRoute(const AMethod, APath: string;
   AHandler: TNativeHandler; AHandlerFunc: TNativeHandlerFunc): TPoseidonServer;
@@ -300,9 +291,6 @@ begin
   Result := Self;
 end;
 
-// ---------------------------------------------------------------------------
-// Global middleware
-// ---------------------------------------------------------------------------
 
 function TPoseidonServer.Use(AMiddleware: TNativeMiddleware): TPoseidonServer;
 var
@@ -326,9 +314,6 @@ begin
   Result := Self;
 end;
 
-// ---------------------------------------------------------------------------
-// Route groups
-// ---------------------------------------------------------------------------
 
 function TPoseidonServer.Group(const APrefix: string): TNativeGroup;
 begin
@@ -344,18 +329,13 @@ begin
   ABlock(LGroup);
 end;
 
-// ---------------------------------------------------------------------------
-// WebSocket
-// ---------------------------------------------------------------------------
 
 procedure TPoseidonServer.WebSocket(const APath: string; AHandler: TWSMessageCallback);
 begin
   FServer.RegisterWSHandler(APath, AHandler);
 end;
 
-// ---------------------------------------------------------------------------
-// Request handling — zero-copy hot path with RFC 7807 error handling
-// ---------------------------------------------------------------------------
+// Request handling - zero-copy hot path with RFC 7807 error handling
 
 procedure TPoseidonServer.HandleRequest(const AReq: TPoseidonNativeRequest;
   out AStatus: Integer; out AContentType: string;
@@ -430,9 +410,7 @@ begin
   AExtraHeaders := LCtx.ExtraHeaders;
 end;
 
-// ---------------------------------------------------------------------------
 // Middleware chain executor with Next() support
-// ---------------------------------------------------------------------------
 
 threadvar
   GChainCtx: Pointer;
@@ -484,7 +462,7 @@ begin
   begin
     // LRoute is nil when the global chain runs without a matched route
     // (path-serving global middlewares such as metrics/static). Skip the
-    // route handler then — there is none.
+    // route handler then - there is none.
     if LRoute <> nil then
     begin
       if Assigned(LRoute^.Handler) then
@@ -508,7 +486,7 @@ var
   LSaveCtx, LSaveRoute, LSaveGlobal, LSaveLocal: Pointer;
   LSaveIdx, LSaveGN, LSaveLN: Integer;
 begin
-  // Save threadvar state — reentrant for nested dispatches
+  // Save threadvar state - reentrant for nested dispatches
   LSaveCtx := GChainCtx;
   LSaveRoute := GChainRoute;
   LSaveGlobal := GChainGlobal;
@@ -538,9 +516,7 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
 // Lifecycle
-// ---------------------------------------------------------------------------
 
 procedure TPoseidonServer.Listen(APort: Integer; const AHost: string;
   AOnListen: TProc);
@@ -592,9 +568,7 @@ begin
   FShutdownEvent.SetEvent;
 end;
 
-// ---------------------------------------------------------------------------
 // Config delegates
-// ---------------------------------------------------------------------------
 
 procedure TPoseidonServer.ConfigureSSL(const ACertFile, AKeyFile: string);
 begin
@@ -616,9 +590,7 @@ begin
   FServer.HTTP2Enabled := AEnabled;
 end;
 
-// ---------------------------------------------------------------------------
 // Property delegates
-// ---------------------------------------------------------------------------
 
 function TPoseidonServer.GetMaxConnections: Integer;
 begin Result := FServer.MaxConnections; end;
@@ -655,6 +627,12 @@ begin Result := FServer.MinWorkerCount; end;
 
 procedure TPoseidonServer.SetMinWorkerCount(AValue: Integer);
 begin FServer.MinWorkerCount := AValue; end;
+
+function TPoseidonServer.GetIOWorkerCount: Integer;
+begin Result := FServer.IOWorkerCount; end;
+
+procedure TPoseidonServer.SetIOWorkerCount(AValue: Integer);
+begin FServer.IOWorkerCount := AValue; end;
 
 function TPoseidonServer.GetWorkerActiveCount: Integer;
 begin Result := FServer.WorkerActiveCount; end;

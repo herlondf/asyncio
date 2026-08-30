@@ -1,10 +1,7 @@
-unit Poseidon.Net.IdleSweep;
+﻿unit Poseidon.Net.IdleSweep;
 
-// TIdleSweepManager — background thread that closes idle connections.
-//
-// Extracted from TPoseidonNativeServer._IdleSweepLoop to follow SRP.
-// Uses TConnectionManager.Snapshot for thread-safe enumeration and
-// IIOBackend.ShutdownConn to initiate graceful close.
+// TIdleSweepManager closes idle connections from a background thread, walking a
+// TConnectionManager.Snapshot and calling IIOBackend.ShutdownConn.
 
 interface
 
@@ -40,6 +37,7 @@ type
     FOnHeartbeat: TProc;
     FHeartbeatMs: Integer;
     FActive: PBoolean;
+    FShrinkAccumBufEnabled: Boolean;
     procedure SweepLoop;
   public
     constructor Create(AConnManager: TConnectionManager;
@@ -50,22 +48,26 @@ type
     procedure Stop;
 
     property IdleTimeoutMs: Integer read FIdleTimeoutMs write FIdleTimeoutMs;
-    // #233: maximum time (ms) a handler may hold InFlightPool > 0 before the
-    // sweep treats it as stuck and force-closes the connection (leak the
-    // socket teardown to the worker's own eventual Release, never kill the
-    // thread). 0 = disabled.
+    // #233: how long a handler may hold InFlightPool > 0 before the sweep calls
+    // it stuck and force-closes the connection, leaving teardown to the worker's
+    // own Release rather than killing the thread. 0 = disabled.
     property MaxHandlerRunMs: Integer read FMaxHandlerRunMs write FMaxHandlerRunMs;
+    // #234 (2026-08-12): shrinks an idle, drained AccumBuf back to tier 0.
+    // Defaults True, but HttpServer turns it off in production while the heap
+    // corruption in #234 is unresolved: this is the newest code touching
+    // AccumBuf's lifetime, so its Acquire/Release is an unproven suspect.
+    // Re-enable once #234 closes or this is cleared.
+    property ShrinkAccumBufEnabled: Boolean
+      read FShrinkAccumBufEnabled write FShrinkAccumBufEnabled;
     property OnLog: TOnPoseidonLog read FOnLog write FOnLog;
-    // #224 mitigation: called instead of ShutdownConn when a connection was
-    // already shutdown-requested on an earlier sweep and is still open past
-    // the grace period — must route to the server's full _CloseConn teardown
-    // (idempotent: safe even if the original shutdown's completion arrives
-    // concurrently), not just IIOBackend.SocketClose.
+    // #224: replaces ShutdownConn once a connection shut down on an earlier
+    // sweep is still open past the grace period. Must route to the server's full
+    // _CloseConn, not IIOBackend.SocketClose; it is idempotent, so the original
+    // shutdown's completion arriving concurrently is safe.
     property OnForceClose: TProc<Pointer> read FOnForceClose write FOnForceClose;
-    // Periodic health tick. Rides this thread instead of spawning another: it
-    // already wakes once a second, and a server that produced no output between
-    // startup and a crash gave operators nothing to correlate. Set
-    // HeartbeatMs = 0 to silence it.
+    // Health tick. Rides this thread rather than spawning one, since it already
+    // wakes every second, and a server silent between startup and a crash left
+    // operators nothing to correlate. HeartbeatMs = 0 silences it.
     property OnHeartbeat: TProc read FOnHeartbeat write FOnHeartbeat;
     property HeartbeatMs: Integer read FHeartbeatMs write FHeartbeatMs;
   end;
@@ -75,11 +77,10 @@ implementation
 const
   CDefaultIdleTimeoutMs = 10000;
   CSweepIntervalMs = 1000;
-  // #224: grace period after ShutdownConn before we stop waiting for the
-  // recv-error completion and force the close ourselves. Generous on purpose
-  // — this only fires when the normal completion-driven close has already
-  // failed to happen for a full sweep interval past a routine idle-shutdown,
-  // which is never expected in healthy operation.
+  // #224: how long to wait for the recv-error completion before forcing the
+  // close. Generous on purpose: it only fires when the normal completion-driven
+  // close already failed for a full sweep interval, which healthy operation
+  // never reaches.
   CForceCloseGraceMs = 5000;
 
 constructor TIdleSweepManager.Create(AConnManager: TConnectionManager;
@@ -89,6 +90,7 @@ begin
   FConnManager := AConnManager;
   FIOBackend := AIOBackend;
   FActive := AActive;
+  FShrinkAccumBufEnabled := True;
   FIdleTimeoutMs := CDefaultIdleTimeoutMs;
   FStopEvent := TEvent.Create(nil, True, False, '');
   FSweepThread := nil;
@@ -124,6 +126,7 @@ var
   I:        Integer;
   LConn:    TNativeConn;
   LNowTick: UInt64;
+  LLastAct: UInt64;
   LDiff:    UInt64;
   LIdle:    Int64;
   LLastBeat: UInt64;
@@ -139,8 +142,8 @@ begin
        (TThread.GetTickCount64 - LLastBeat >= UInt64(FHeartbeatMs)) then
     begin
       LLastBeat := TThread.GetTickCount64;
-      // Never let a logging failure kill the sweep — the sweep is what stops
-      // fds from leaking.
+      // A logging failure must never kill the sweep; it is what stops fds from
+      // leaking.
       try FOnHeartbeat(); except on E: Exception do; end;
     end;
 
@@ -152,26 +155,38 @@ begin
     begin
       LConn := TNativeConn(LSnap[I]);
       try
-        LDiff := LNowTick - LConn.LastActivityTick;
-        if LDiff > UInt64(MaxInt) then
-          LIdle := MaxInt
+        // LNowTick is sampled once, before the sweep walks the snapshot. A
+        // connection that sees traffic DURING the walk stamps LastActivityTick
+        // ahead of it, so the UInt64 subtraction wraps to ~2^64 - which the
+        // MaxInt clamp below then reads as "idle forever" and closes. That
+        // inverted the whole check: the busier the connection, the likelier it
+        // was to be swept. Measured at 1606 wrongful closes in 120s under
+        // saturating load, surfacing on the client as socket read errors.
+        // A tick at or past the sample means activity newer than this pass.
+        LLastAct := LConn.LastActivityTick;
+        if LLastAct >= LNowTick then
+          LIdle := 0
         else
-          LIdle := Integer(LDiff);
+        begin
+          LDiff := LNowTick - LLastAct;
+          if LDiff > UInt64(MaxInt) then
+            LIdle := MaxInt
+          else
+            LIdle := Integer(LDiff);
+        end;
 
         if TInterlocked.Add(LConn.InFlightPool, 0) > 0 then
         begin
-          // #233: a handler is running (or queued) for this connection, so
-          // the idle-close checks below never apply here — LastActivityTick
-          // keeps getting refreshed at dispatch time, not just on recv.
-          // Without this, a handler stuck in normal operation (not just at
-          // shutdown, where FDrainTimeoutMs already covers this) ran forever
-          // with no defense at all (#233).
+          // #233: a handler is running or queued, so the idle-close checks
+          // below do not apply; LastActivityTick refreshes at dispatch time,
+          // not only on recv. Without this, a handler stuck outside shutdown
+          // (where FDrainTimeoutMs covers it) ran forever undefended.
           if (FMaxHandlerRunMs > 0) and (LIdle > FMaxHandlerRunMs) then
           begin
             if Assigned(FOnLog) then
               FOnLog(llWarning, '[sweep] #233 handler stuck: ' +
                 LConn.RemoteAddr + ' running=' + IntToStr(LIdle) +
-                'ms (limit ' + IntToStr(FMaxHandlerRunMs) + 'ms) — closing ' +
+                'ms (limit ' + IntToStr(FMaxHandlerRunMs) + 'ms) - closing ' +
                 'connection, NOT killing the worker thread');
             if Assigned(FOnForceClose) then
               FOnForceClose(LSnap[I]);
@@ -179,23 +194,26 @@ begin
           Continue;
         end;
 
-        // AccumBuf grows via the pool tier (8/64/512 KB) on a large request
-        // but _CompactAccum only ever resets AccumLen, never the buffer's
-        // capacity -- a keep-alive connection that once handled one big
-        // request holds that peak size for the rest of its life otherwise.
-        // Safe here specifically because InFlightPool = 0 (no dispatch is
-        // touching AccumBuf) and LConn.Lock excludes a concurrent recv on
-        // this connection's own IO thread (#213 same serialization).
-        LConn.Lock.Enter;
-        try
-          if (LConn.AccumLen = 0) and (Length(LConn.AccumBuf) > POOL_TIER0_SIZE) then
-          begin
-            LOldBuf := LConn.AccumBuf;
-            LConn.AccumBuf := TBufferPool.Acquire;
-            TBufferPool.Release(LOldBuf);
+        // _CompactAccum resets AccumLen but never capacity, so a keep-alive
+        // connection that once served one big request holds that peak for life.
+        // LConn.Lock excludes a concurrent recv on this connection's IO thread
+        // (#213). InFlightPool is re-checked under the lock because a dispatch
+        // can be posted between the fast-path skip above and Lock.Enter.
+        if FShrinkAccumBufEnabled then
+        begin
+          LConn.Lock.Enter;
+          try
+            if (TInterlocked.Add(LConn.InFlightPool, 0) = 0) and
+               (LConn.AccumLen = 0) and
+               (Length(LConn.AccumBuf) > POOL_TIER0_SIZE) then
+            begin
+              LOldBuf := LConn.AccumBuf;
+              LConn.AccumBuf := TBufferPool.Acquire;
+              TBufferPool.Release(LOldBuf);
+            end;
+          finally
+            LConn.Lock.Leave;
           end;
-        finally
-          LConn.Lock.Leave;
         end;
 
         if FIdleTimeoutMs <= 0 then Continue;
@@ -210,7 +228,7 @@ begin
           // shut it down) and force the close ourselves instead of leaking.
           if LConn.ShutdownRequestedTick = 0 then
           begin
-            // #208: idle close is routine lifecycle, not an error — logging it
+            // #208: idle close is routine lifecycle, not an error - logging it
             // at llError floods production error logs. Demote to llDebug.
             if Assigned(FOnLog) then
               FOnLog(llDebug, '[sweep] idle close: ' + LConn.RemoteAddr +
@@ -222,7 +240,7 @@ begin
           begin
             if Assigned(FOnLog) then
               FOnLog(llWarning, '[sweep] #224 force-close: ' + LConn.RemoteAddr +
-                ' — no completion ' + IntToStr(CForceCloseGraceMs) +
+                ' - no completion ' + IntToStr(CForceCloseGraceMs) +
                 'ms after shutdown, fd would have leaked');
             if Assigned(FOnForceClose) then
               FOnForceClose(LSnap[I]);
