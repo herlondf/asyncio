@@ -83,3 +83,7 @@ SOAK-*.md
 
 # ─── Generated API reference (PasDoc) ──────────────────────────────────────────
 docs/api/html/
+
+# Lixo de ferramenta local
+.playwright-mcp/
+taskdef_current.json
