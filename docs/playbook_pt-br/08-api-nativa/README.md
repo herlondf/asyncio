@@ -248,6 +248,7 @@ disponível — use um restart via gerenciador de serviços.
 | `MaxConnectionsPerIP` | `Integer` | Máximo de conexões simultâneas por IP de cliente |
 | `WorkerCount` | `Integer` | Tamanho máximo do worker pool |
 | `MinWorkerCount` | `Integer` | Quantidade mínima (baseline) de worker threads |
+| `IOWorkerCount` | `Integer` | Threads de evento de I/O (só recv/send). `0` = auto: uma por CPU disponível, limitado a 16 |
 | `IdleTimeoutMs` | `Integer` | Timeout de conexão ociosa, padrão 10000 ms |
 | `MaxRequestSize` | `Integer` | Tamanho máximo aceito do corpo da requisição, padrão 8 MB |
 | `MaxHeaderSize` | `Integer` | Tamanho máximo aceito do bloco de headers, padrão 65536 bytes |

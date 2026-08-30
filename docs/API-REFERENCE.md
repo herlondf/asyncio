@@ -125,6 +125,7 @@ Path params use `:name` (e.g. `/users/:id`); read them with `Ctx.Param('id')`.
 | `MaxConnectionsPerIP: Integer` | Max concurrent connections per client IP. |
 | `WorkerCount: Integer` | Max worker-thread pool size. |
 | `MinWorkerCount: Integer` | Minimum (baseline) worker-thread count. |
+| `IOWorkerCount: Integer` | IO-event threads (recv/send only, never handlers). `0` = auto: one per available CPU, capped at 16. Raising it above the CPU count costs tail latency. |
 | `IdleTimeoutMs: Integer` | Idle connection timeout (ms). |
 | `MaxRequestSize: Integer` | Max accepted request body size (bytes). |
 | `MaxHeaderSize: Integer` | Max accepted header block size (bytes). |

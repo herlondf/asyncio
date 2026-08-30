@@ -13,6 +13,23 @@ atual de resultados com os 8 frameworks e a matriz de protocolo/funcionalidades
 (`docs/framework-features_pt-br.svg`); atualize os dois juntos quando os
 números mudarem.
 
+## Meca a configuracao que voce vai entregar
+
+Um antes/depois pareado so prova algo sobre a configuracao exata em que rodou.
+Em 30/08/2026 uma mudanca no dimensionamento de IO workers foi medida como
+`io=2 + pool=2` e entregue como `io=2 + pool=4`, porque o tier de requisicoes
+foi deixado de fora "para ser conservador". A versao medida ganhava; a versao
+entregue perdia 45% de throughput (19-21k req/s contra 35-37k do
+dimensionamento antigo). As duas compilavam, as duas rodavam, e a regressao so
+apareceu num A/B pareado do binario construido contra o comportamento antigo na
+mesma janela.
+
+Portanto: depois de implementar, refaca o A/B contra o artefato que voce vai
+liberar de fato, alternando o novo comportamento pelo proprio parametro publico
+em vez de por uma sonda. Aqui o `IOWorkerCount` reproduz o dimensionamento
+antigo no mesmo binario, o que tira compilacao e deriva de maquina da
+comparacao.
+
 ## Validando mudancas no caminho quente: antes/depois controlado
 
 Toda mudanca no parser/dispatcher/response-builder e checada com uma

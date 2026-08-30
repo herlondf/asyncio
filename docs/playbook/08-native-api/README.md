@@ -243,6 +243,7 @@ available — use a service manager restart instead.
 | `MaxConnectionsPerIP` | `Integer` | Max concurrent connections per client IP |
 | `WorkerCount` | `Integer` | Max worker-thread pool size |
 | `MinWorkerCount` | `Integer` | Minimum (baseline) worker-thread count |
+| `IOWorkerCount` | `Integer` | IO-event threads (recv/send only). `0` = auto: one per available CPU, capped at 16 |
 | `IdleTimeoutMs` | `Integer` | Idle connection timeout, default 10000 ms |
 | `MaxRequestSize` | `Integer` | Max accepted request body size, default 8 MB |
 | `MaxHeaderSize` | `Integer` | Max accepted header block size, default 65536 bytes |

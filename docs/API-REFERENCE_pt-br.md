@@ -125,6 +125,7 @@ Parâmetros de rota usam `:name` (ex.: `/users/:id`); leia-os com `Ctx.Param('id
 | `MaxConnectionsPerIP: Integer` | Máximo de conexões concorrentes por IP de cliente. |
 | `WorkerCount: Integer` | Tamanho máximo do pool de threads de trabalho. |
 | `MinWorkerCount: Integer` | Número mínimo (baseline) de threads de trabalho. |
+| `IOWorkerCount: Integer` | Threads de evento de I/O (só recv/send, nunca handlers). `0` = auto: uma por CPU disponível, limitado a 16. Subir acima do número de CPUs custa latência de cauda. |
 | `IdleTimeoutMs: Integer` | Timeout de conexão ociosa (ms). |
 | `MaxRequestSize: Integer` | Tamanho máximo aceito do corpo da requisição (bytes). |
 | `MaxHeaderSize: Integer` | Tamanho máximo aceito do bloco de headers (bytes). |

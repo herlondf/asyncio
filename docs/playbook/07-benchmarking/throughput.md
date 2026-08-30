@@ -11,6 +11,21 @@ Poseidon vs. Horse/other frameworks under realistic load), see the separate
 carries the current 8-framework result table and a protocol/feature matrix
 (`docs/framework-features.svg`); update both together when the numbers change.
 
+## Measure the configuration you are going to ship
+
+A paired before/after only proves something about the exact configuration it
+ran. On 2026-08-30 an IO-worker sizing change was measured as `io=2 + pool=2`
+and shipped as `io=2 + pool=4`, because the request tier was deliberately left
+alone "to be conservative". The measured version gained; the shipped version
+lost 45% of throughput (19-21k req/s against 35-37k for the original sizing).
+Both compiled, both ran, and the regression only surfaced in a paired A/B of
+the built binary against the old behaviour in the same window.
+
+So: after implementing, re-run the A/B against the artifact you will actually
+release, toggling the new behaviour through its own public switch rather than
+through a probe. Here `IOWorkerCount` reproduces the old sizing in the same
+binary, which removes compilation and machine drift from the comparison.
+
 ## Validating hot-path changes: controlled before/after
 
 Any change to the parser/dispatcher/response-builder hot path is checked with
