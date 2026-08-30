@@ -1,4 +1,4 @@
-unit Poseidon.Middleware.Cache;
+﻿unit Poseidon.Middleware.Cache;
 
 // Response caching middleware with ETag / 304 Not Modified support.
 //
@@ -157,7 +157,7 @@ begin
     Result := '"0"'
   else
   begin
-    // Hash the raw octets — a binary body (image/pdf/gzip) is not valid UTF-8,
+    // Hash the raw octets - a binary body (image/pdf/gzip) is not valid UTF-8,
     // and TEncoding.UTF8.GetString RAISES EEncodingError on it in this RTL
     // (crash while ETagging a cacheable binary response). Hashing bytes is also
     // the correct ETag semantics (exact byte identity).
@@ -188,7 +188,7 @@ begin
 end;
 
 // #188: a shared cache must not store per-user or explicitly non-cacheable
-// responses — doing so leaks the first caller's body/session cookie to others.
+// responses - doing so leaks the first caller's body/session cookie to others.
 function ResponseIsCacheable(const ACtx: TNativeRequestContext): Boolean;
 var
   I: Integer;

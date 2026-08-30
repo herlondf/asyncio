@@ -1,16 +1,16 @@
-unit Poseidon.Tests.HttpServer;
+﻿unit Poseidon.Tests.HttpServer;
 
 // DUnitX integration tests for TPoseidonNativeServer (HTTP/1.1).
 //
-// Fixture 1 — TPoseidonHttpServerTests  (port 19001): basic HTTP paths
-// Fixture 2 — TPoseidonHttpServerAdvTests (port 19003): security / reliability
+// Fixture 1 - TPoseidonHttpServerTests  (port 19001): basic HTTP paths
+// Fixture 2 - TPoseidonHttpServerAdvTests (port 19003): security / reliability
 //   properties: AllowedMethods, MaxRequestSize, MaxQueueDepth,
 //   SecureHeaders, ServerBanner, RateLimit, path traversal, request smuggling.
-// Fixture 3 — TPoseidonHttpServerDrainTests (port 19005): R-1 graceful drain
-// Fixture 4 — TPoseidonHttpServerWSTests    (port 19006): R-3 MaxWSFrameSize
-// Fixture 5 — TPoseidonHttpServerH2CTests   (port 19007): A-5 h2c upgrade
+// Fixture 3 - TPoseidonHttpServerDrainTests (port 19005): R-1 graceful drain
+// Fixture 4 - TPoseidonHttpServerWSTests    (port 19006): R-3 MaxWSFrameSize
+// Fixture 5 - TPoseidonHttpServerH2CTests   (port 19007): A-5 h2c upgrade
 //
-// HTTP client: System.Net.HttpClient (Delphi RTL — no external deps).
+// HTTP client: System.Net.HttpClient (Delphi RTL - no external deps).
 // Raw TCP: Winapi.Winsock2 blocking sockets for WS and h2c tests.
 
 interface
@@ -58,10 +58,10 @@ type
     [TeardownFixture]
     procedure TeardownFixture;
 
-    // AllowedMethods (S-1) — moved to middleware; tests removed
+    // AllowedMethods (S-1) - moved to middleware; tests removed
 
-    // Path traversal (S-2) — moved to middleware; tests removed
-    // Request smuggling (S-4) — moved to middleware; tests removed
+    // Path traversal (S-2) - moved to middleware; tests removed
+    // Request smuggling (S-4) - moved to middleware; tests removed
 
     // MaxRequestSize (R-4)
     [Test]
@@ -83,7 +83,7 @@ type
     [Test]
     procedure ServerBanner_Empty_ServerHeaderAbsent;
 
-    // Rate limit — moved to middleware; tests removed
+    // Rate limit - moved to middleware; tests removed
   end;
 
   // ── Fixture 6: idle timeout ─────────────────────────────────────────────────
@@ -184,7 +184,7 @@ uses
   Poseidon.Net.WebSocket,
   Poseidon.Net.HttpServer;
 
-// Forward declarations — implementations are in the WS fixture section below,
+// Forward declarations - implementations are in the WS fixture section below,
 // but these helpers are also used by the Adv fixture (raw socket tests).
 function OpenTCPSocket(APort: Word): TSocket; forward;
 function SendAll(ASocket: TSocket; const ABuf: TBytes): Boolean; forward;
@@ -210,7 +210,7 @@ var
   GServer:      TPoseidonNativeServer;
   GListenReady: TEvent;  // points to FEvent during SetupFixture
 
-// Named procedures for Listen callbacks — avoids parser confusion from
+// Named procedures for Listen callbacks - avoids parser confusion from
 // complex generic types inside anonymous method parameter lists.
 
 procedure TestHttpHandler(const AReq: TPoseidonNativeRequest;
@@ -373,7 +373,7 @@ end;
 
 procedure TPoseidonHttpServerTests.Post_Echo_ReflectsBody;
 // Verifies that the handler receives RawBody and can echo it verbatim back to
-// the caller — covers the POST branch of TestHttpHandler and body parsing.
+// the caller - covers the POST branch of TestHttpHandler and body parsing.
 var
   LClient:   THTTPClient;
   LResponse: IHTTPResponse;
@@ -433,9 +433,7 @@ begin
   end;
 end;
 
-// =============================================================================
-// Fixture 2 — TPoseidonHttpServerAdvTests (port 19002)
-// =============================================================================
+// Fixture 2 - TPoseidonHttpServerAdvTests (port 19002)
 
 const
   ADV_PORT = 19003;
@@ -536,7 +534,7 @@ const
   QUEUE_LIMIT = 1;
   FLOOD_COUNT = 20;
 begin
-  // Create a manual-reset event that starts unsignaled — handler will block.
+  // Create a manual-reset event that starts unsignaled - handler will block.
   GAdvSlowGate := TEvent.Create(nil, True, False, '');
   GAdvServer.MaxQueueDepth := QUEUE_LIMIT;
   LGot503 := 0;
@@ -652,12 +650,10 @@ end;
 
 // ── Request smuggling (S-4) ─── moved to middleware ──────────────────────────
 
-// Smuggling_CLAndChunked test removed — enforcement moved to middleware.
+// Smuggling_CLAndChunked test removed - enforcement moved to middleware.
 
-// =============================================================================
-// Fixture 3 — TPoseidonHttpServerDrainTests (port 19005)
+// Fixture 3 - TPoseidonHttpServerDrainTests (port 19005)
 // R-1: event-based graceful drain
-// =============================================================================
 
 const
   DRAIN_PORT = 19005;
@@ -678,7 +674,7 @@ begin
   AStatus       := 200;
   AContentType  := 'text/plain';
   AExtraHeaders := [];
-  // If /slow — block until gate is signaled (used by drain tests)
+  // If /slow - block until gate is signaled (used by drain tests)
   if (AReq.Path = '/slow') and Assigned(GDrainGate) then
     GDrainGate.WaitFor(5000);
   ABody := TEncoding.UTF8.GetBytes('ok');
@@ -830,10 +826,8 @@ begin
   end;
 end;
 
-// =============================================================================
-// Fixture 4 — TPoseidonHttpServerWSTests (port 19006)
-// R-3: MaxWSFrameSize — oversized WS frame causes server to close connection
-// =============================================================================
+// Fixture 4 - TPoseidonHttpServerWSTests (port 19006)
+// R-3: MaxWSFrameSize - oversized WS frame causes server to close connection
 // These tests use a raw Winsock2 blocking socket to perform the WebSocket
 // handshake and then send frames directly, so that frame-size enforcement
 // can be observed at the TCP level.
@@ -956,7 +950,7 @@ begin
   begin
     LRecvd := recv(ASocket, LChunk[0], SizeOf(LChunk), 0);
     if LRecvd <= 0 then
-      Continue;  // timeout tick or transient — keep waiting until the deadline
+      Continue;  // timeout tick or transient - keep waiting until the deadline
 
     SetLength(LBuf, LTotal + LRecvd);
     Move(LChunk[0], LBuf[LTotal], LRecvd);
@@ -1157,7 +1151,7 @@ begin
     setsockopt(LSock, SOL_SOCKET, SO_RCVTIMEO,
       PAnsiChar(@LTimeoutMs), SizeOf(LTimeoutMs));
 
-    // Send a masked PING frame (RFC 6455 §5.5.2) — no payload, well within limit
+    // Send a masked PING frame (RFC 6455 §5.5.2) - no payload, well within limit
     LPing := BuildRawWSFrame($09 {ping}, nil);
     SendAll(LSock, LPing);
 
@@ -1174,10 +1168,8 @@ begin
   end;
 end;
 
-// =============================================================================
-// Fixture 5 — TPoseidonHttpServerH2CTests (port 19007)
+// Fixture 5 - TPoseidonHttpServerH2CTests (port 19007)
 // A-5: h2c cleartext upgrade via Upgrade: h2c header (RFC 7540 §3.2)
-// =============================================================================
 
 const
   H2C_PORT = 19007;
@@ -1257,7 +1249,7 @@ begin
       'HTTP2-Settings: AAMAAABkAAQAAP__'#13#10#13#10);
     Assert.IsTrue(SendAll(LSock, LReq), 'Failed to send h2c upgrade request');
 
-    // Read server response — should start with HTTP/1.1 101
+    // Read server response - should start with HTTP/1.1 101
     RecvSome(LSock, LResp, 2048);
     LRespStr := TEncoding.ASCII.GetString(LResp);
     Assert.IsTrue(
@@ -1285,10 +1277,8 @@ begin
   end;
 end;
 
-// =============================================================================
-// Fixture 6 — TPoseidonHttpServerIdleTests (port 19008)
+// Fixture 6 - TPoseidonHttpServerIdleTests (port 19008)
 // IdleTimeoutMs: connections with no inbound bytes for IdleTimeoutMs are closed.
-// =============================================================================
 
 const
   IDLE_PORT = 19008;
@@ -1325,7 +1315,7 @@ procedure TPoseidonHttpServerIdleTests.SetupFixture;
 begin
   FEvent           := TEvent.Create(nil, True, False, '');
   GIdleServer      := TPoseidonNativeServer.Create;
-  GIdleServer.IdleTimeoutMs := 500;   // very short — makes tests fast
+  GIdleServer.IdleTimeoutMs := 500;   // very short - makes tests fast
   GIdleListenReady := FEvent;
   TThread.CreateAnonymousThread(IdleListenThread).Start;
   Assert.AreEqual(TWaitResult.wrSignaled,
@@ -1343,7 +1333,7 @@ end;
 procedure TPoseidonHttpServerIdleTests.IdleTimeout_InactiveConnection_ClosedByServer;
 // Open a raw TCP connection, perform the HTTP/1.1 handshake to ensure the
 // connection is accepted (LastActivity is set), then go silent.
-// After IdleTimeoutMs + sweep interval the server should close the socket —
+// After IdleTimeoutMs + sweep interval the server should close the socket -
 // observed as recv() returning 0 (FIN) on the client side.
 var
   LSock:    TSocket;
@@ -1373,7 +1363,7 @@ begin
     // GIdleServer.IdleTimeoutMs = 500; sweep runs every ~1 s; worst case ~1.5 s.
     Sleep(2200);
 
-    // The server should have sent a FIN — recv() must return 0 or an error.
+    // The server should have sent a FIN - recv() must return 0 or an error.
     LTimeout := 500;  // ms
     setsockopt(LSock, SOL_SOCKET, SO_RCVTIMEO,
       PAnsiChar(@LTimeout), SizeOf(LTimeout));
@@ -1420,7 +1410,7 @@ begin
       Sleep(200);
     end;
 
-    // Connection must still be alive — a fresh request should succeed.
+    // Connection must still be alive - a fresh request should succeed.
     Assert.IsTrue(SendAll(LSock, LReq),
       'Active connection should still be open after activity');
     LRecv := RecvSome(LSock, LResp, 4096);

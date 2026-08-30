@@ -1,6 +1,6 @@
-unit Poseidon.Tests.Workers;
+﻿unit Poseidon.Tests.Workers;
 
-// DUnitX tests for TElasticWorkerPool — elastic thread pool.
+// DUnitX tests for TElasticWorkerPool - elastic thread pool.
 //
 // Coverage:
 //   - MinWorkers seeded on Create
@@ -46,9 +46,7 @@ const
   TEST_MAX_WORKERS     = 8;
   TEST_IDLE_TIMEOUT_MS = 300;
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 procedure TElasticWorkerPoolTests.Create_MinWorkers_SpawnedImmediately;
 var
@@ -238,7 +236,7 @@ begin
       LPool.Post(procedure begin raise Exception.Create('test exception'); end);
       Sleep(100);
 
-      // Post normal item after the exception — must execute
+      // Post normal item after the exception - must execute
       LPool.Post(procedure begin LDone.SetEvent; end);
       Assert.AreEqual(TWaitResult.wrSignaled, LDone.WaitFor(2000),
         'Pool must continue processing after a work item raises an exception');
@@ -255,7 +253,7 @@ procedure TElasticWorkerPoolTests.Post_MaxWorkersReached_NoOverspawn;
 // Pool should stay near MaxWorkers. The TOCTOU race in Post() means each
 // concurrent Post() call can speculatively spawn a worker when IdleWorkers=0.
 // With 20 rapid Posts, up to 20 spawn attempts happen before workers register
-// as idle — but the OS thread pool startup adds latency. In practice,
+// as idle - but the OS thread pool startup adds latency. In practice,
 // ActiveWorkers converges after a brief spike. We verify it stays within
 // a reasonable bound (MaxWorkers * 3) which catches unbounded growth.
 var
@@ -295,7 +293,7 @@ procedure TElasticWorkerPoolTests.Post_AfterShutdown_RunsWorkSynchronously;
 // thread) instead of silently dropping it. Dropping it would leak whatever
 // refcount/counter the caller already incremented BEFORE calling Post
 // (AddRef, InFlightPool, FInFlightCount in
-// TPoseidonNativeServer._DispatchAccumBuf) — the connection would never
+// TPoseidonNativeServer._DispatchAccumBuf) - the connection would never
 // reach refcount 0 again: no crash, just memory that never comes back.
 var
   LPool: TElasticWorkerPool;

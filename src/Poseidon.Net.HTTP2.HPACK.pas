@@ -1,4 +1,4 @@
-unit Poseidon.Net.HTTP2.HPACK;
+﻿unit Poseidon.Net.HTTP2.HPACK;
 
 // HPACK (RFC 7541) codec extracted from Poseidon.Net.HTTP2.
 // Owns the dynamic table, static table and Huffman tree for one HTTP/2 connection.
@@ -22,9 +22,6 @@ uses
   System.Generics.Collections;
   {$ENDIF}
 
-// ---------------------------------------------------------------------------
-// Types shared with HTTP2.pas
-// ---------------------------------------------------------------------------
 
 type
   TH2DynEntry = record
@@ -43,17 +40,11 @@ type
     // and turns it into a COMPRESSION_ERROR GOAWAY.
     FDecodeError: Boolean;
 
-    // -----------------------------------------------------------------------
-    // HPACK integer codec
-    // -----------------------------------------------------------------------
     function  _HpackDecodeInt(ABuf: PByte; ABufLen: Integer; APrefixBits: Byte;
       var APos: Integer): Cardinal;
     procedure _HpackEncodeInt(var ABuf: TBytes; var APos: Integer;
       AValue: Cardinal; APrefixBits: Byte; AHighBits: Byte);
 
-    // -----------------------------------------------------------------------
-    // HPACK string codec
-    // -----------------------------------------------------------------------
     function  _HpackHuffmanDecode(ABuf: PByte; ALen: Integer;
       out AResult: string): Boolean;
     function  _HpackDecodeStr(ABuf: PByte; ABufLen: Integer;
@@ -61,16 +52,10 @@ type
     procedure _HpackEncodeStr(var ABuf: TBytes; var APos: Integer;
       const AStr: string);
 
-    // -----------------------------------------------------------------------
-    // HPACK table access
-    // -----------------------------------------------------------------------
     function  _HpackGetStatic(AIdx: Cardinal; out AName, AValue: string): Boolean;
     function  _HpackGetDynamic(AIdx: Cardinal; out AName, AValue: string): Boolean;
     procedure _HpackAddDyn(const AName, AValue: string);
 
-    // -----------------------------------------------------------------------
-    // Property setter
-    // -----------------------------------------------------------------------
     procedure SetMaxDynTableSize(AValue: Integer);
 
   public
@@ -85,7 +70,7 @@ type
     // On success, fills AMethod/APath/AScheme/AAuthority and AHeaders.
     // AHeaderListTooBig is set True when the accumulated header list size
     // (sum of name.len + value.len + 32 per header) exceeds CMaxHeaderListSize
-    // — HPACK-bomb defense (RFC 7540 §10.5.1 / SETTINGS_MAX_HEADER_LIST_SIZE).
+    // - HPACK-bomb defense (RFC 7540 §10.5.1 / SETTINGS_MAX_HEADER_LIST_SIZE).
     // In that case Result is False and the caller should REFUSE_STREAM.
     // AProtocolError is set True when the header block violates RFC 7540 §8.1.2
     // pseudo-header rules (missing / duplicated / out-of-order pseudo-headers,
@@ -112,9 +97,6 @@ type
     property MaxDynTableSize: Integer read FDynTableMaxSize write SetMaxDynTableSize;
   end;
 
-// ---------------------------------------------------------------------------
-// Constants (also used by HTTP2.pas through the uses clause)
-// ---------------------------------------------------------------------------
 
 const
   STATIC_TABLE_SIZE = 61;
@@ -131,12 +113,10 @@ const
   // cap, a hostile client could ask us to allocate an arbitrarily large
   // dynamic table (memory-amplification DoS).
   // Value matches the SETTINGS_HEADER_TABLE_SIZE emitted in
-  // Poseidon.Net.HTTP2.TH2Conn.SendInitialSettings — keep both in sync.
+  // Poseidon.Net.HTTP2.TH2Conn.SendInitialSettings - keep both in sync.
   CServerMaxDynTableSize = 4096;
 
-// ===========================================================================
-// Huffman decode tree — built once at unit initialization
-// ===========================================================================
+// Huffman decode tree - built once at unit initialization
 
 type
   TH2HuffNode = record
@@ -320,9 +300,7 @@ const
     (Code: $3FFFFFFF; Bits: 30)
   );
 
-// ---------------------------------------------------------------------------
 // Internal: build Huffman decode tree
-// ---------------------------------------------------------------------------
 
 procedure _BuildHuffTree;
 var
@@ -364,9 +342,7 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
 // Internal: populate RFC 7541 Appendix A static table
-// ---------------------------------------------------------------------------
 
 procedure _InitStaticTable;
 begin
@@ -433,9 +409,7 @@ begin
   GStaticTable[61].Name := 'www-authenticate';   GStaticTable[61].Value := '';
 end;
 
-// ===========================================================================
 // Helper: map common status codes to static-table indexed byte
-// ===========================================================================
 
 function _StatusIndexByte(AStatus: Integer): Byte;
 begin
@@ -455,7 +429,7 @@ end;
 // HPACK header-field names/values are opaque octet sequences (RFC 7541 §1.3),
 // NOT required to be UTF-8. Decode them as ISO-8859-1 (raw byte → code point):
 // this NEVER raises (TEncoding.UTF8.GetString raises EEncodingError on invalid
-// UTF-8 in this RTL — a remotely-triggerable DoS via a non-UTF-8 header) and is
+// UTF-8 in this RTL - a remotely-triggerable DoS via a non-UTF-8 header) and is
 // consistent with the HTTP/1 parser (_FastBufToStr), which maps octets the same
 // way. Faithful and reversible; a genuine UTF-8 value round-trips via GetBytes.
 function _HpackOctetsToStr(const ABytes: TBytes; ALen: Integer): string;
@@ -468,9 +442,7 @@ begin
     PWord(@PChar(Pointer(Result))[LI])^ := ABytes[LI];
 end;
 
-// ===========================================================================
 // TH2HpackCodec
-// ===========================================================================
 
 constructor TH2HpackCodec.Create;
 begin
@@ -479,7 +451,6 @@ begin
   FDynTableSize := 0;
   FDynTableMaxSize := CDefaultDynTableMaxSize;
 
-  // Ensure shared Huffman tree is built
   GHuffLock.Enter;
   try
     if not GHuffTreeBuilt then
@@ -498,16 +469,14 @@ begin
   inherited Destroy;
 end;
 
-// ---------------------------------------------------------------------------
 // Property setter
-// ---------------------------------------------------------------------------
 
 procedure TH2HpackCodec.SetMaxDynTableSize(AValue: Integer);
 begin
   // Silent cap against the value the server advertised in its own SETTINGS
   // (CServerMaxDynTableSize). RFC 7541 §6.3: the encoder MUST NOT set a size
   // greater than the value announced by the decoder. Instead of erroring, cap
-  // silently — the peer is still free to shrink the table below the cap.
+  // silently - the peer is still free to shrink the table below the cap.
   if AValue < 0 then AValue := 0;
   if AValue > CServerMaxDynTableSize then
     AValue := CServerMaxDynTableSize;
@@ -515,14 +484,12 @@ begin
   _HpackEvict(FDynTableMaxSize);
 end;
 
-// ===========================================================================
 // HPACK integer codec
-// ===========================================================================
 
 function TH2HpackCodec._HpackDecodeInt(ABuf: PByte; ABufLen: Integer;
   APrefixBits: Byte; var APos: Integer): Cardinal;
 const
-  CMaxShift = 28; // RFC 7541 §5.1 — max 4 continuation bytes for 32-bit value
+  CMaxShift = 28; // RFC 7541 §5.1 - max 4 continuation bytes for 32-bit value
 var
   LMask:  Cardinal;
   LValue: UInt64;
@@ -538,7 +505,7 @@ begin
     Result := Cardinal(LValue);
     Exit;
   end;
-  // Multi-byte encoding — accumulate in UInt64 to detect overflow past 32 bits.
+  // Multi-byte encoding - accumulate in UInt64 to detect overflow past 32 bits.
   LShift := 0;
   repeat
     if APos >= ABufLen then
@@ -596,9 +563,7 @@ begin
   end;
 end;
 
-// ===========================================================================
 // HPACK string codec
-// ===========================================================================
 
 function TH2HpackCodec._HpackHuffmanDecode(ABuf: PByte; ALen: Integer;
   out AResult: string): Boolean;
@@ -633,7 +598,7 @@ begin
       LChild := GHuffTree[LNode].Children[LBit];
       if LChild = -1 then
       begin
-        // Impossible in a canonical Huffman tree — signals encoder bug.
+        // Impossible in a canonical Huffman tree - signals encoder bug.
         FDecodeError := True;
         Exit;
       end;
@@ -683,7 +648,7 @@ var
 begin
   if APos >= ABufLen then
   begin
-    // A representation demanded a string but the block ends here — the header
+    // A representation demanded a string but the block ends here - the header
     // block fragment is truncated: COMPRESSION_ERROR (DecodeHeaders picks up
     // FDecodeError after the representation returns).
     FDecodeError := True;
@@ -741,9 +706,7 @@ begin
   Inc(APos, LLen);
 end;
 
-// ===========================================================================
 // HPACK table access
-// ===========================================================================
 
 function TH2HpackCodec._HpackGetStatic(AIdx: Cardinal;
   out AName, AValue: string): Boolean;
@@ -804,7 +767,7 @@ begin
   if LEntrySize > FDynTableMaxSize then Exit; // won't fit even alone
 
   // Prepend (index 62 = element 0 = most recent)
-  // Use a safe loop — TH2DynEntry contains managed string fields; Move would
+  // Use a safe loop - TH2DynEntry contains managed string fields; Move would
   // bypass reference counting and corrupt memory.
   LLen := Length(FDynTable);
   SetLength(FDynTable, LLen + 1);
@@ -815,9 +778,7 @@ begin
   Inc(FDynTableSize, LEntrySize);
 end;
 
-// ===========================================================================
-// DecodeHeaders — full HPACK header block decode
-// ===========================================================================
+// DecodeHeaders - full HPACK header block decode
 
 function TH2HpackCodec.DecodeHeaders(ABuf: PByte; ALen: Integer;
   out AMethod, APath, AScheme, AAuthority: string;
@@ -863,7 +824,7 @@ var
               (AN = 'upgrade');
   end;
 
-  // Resolve a table index into LName/LValue. RFC 7541 §2.3.3 / §6.1 — an index
+  // Resolve a table index into LName/LValue. RFC 7541 §2.3.3 / §6.1 - an index
   // that addresses neither the static nor the dynamic table is a decoding error
   // (COMPRESSION_ERROR at the caller).
   function _ResolveIndex(AIndex: Cardinal): Boolean;
@@ -908,7 +869,7 @@ begin
         Result := False;
         Exit;
       end;
-      // §6.1 — an indexed representation with an index that resolves to no
+      // §6.1 - an indexed representation with an index that resolves to no
       // table entry is a COMPRESSION_ERROR (not a silent skip).
       if not _ResolveIndex(LIdx) then
       begin
@@ -927,7 +888,7 @@ begin
       LNameOnly := (LIdx = 0);
       if not LNameOnly then
       begin
-        // §6.2 — a literal with a name index that resolves to no table entry
+        // §6.2 - a literal with a name index that resolves to no table entry
         // is a COMPRESSION_ERROR.
         if not _ResolveIndex(LIdx) then
         begin
@@ -949,7 +910,7 @@ begin
       LNameOnly := (LIdx = 0);
       if not LNameOnly then
       begin
-        // §6.2 — a literal with a name index that resolves to no table entry
+        // §6.2 - a literal with a name index that resolves to no table entry
         // is a COMPRESSION_ERROR.
         if not _ResolveIndex(LIdx) then
         begin
@@ -971,7 +932,7 @@ begin
       LNameOnly := (LIdx = 0);
       if not LNameOnly then
       begin
-        // §6.2 — a literal with a name index that resolves to no table entry
+        // §6.2 - a literal with a name index that resolves to no table entry
         // is a COMPRESSION_ERROR.
         if not _ResolveIndex(LIdx) then
         begin
@@ -986,7 +947,7 @@ begin
     end
     else if (LByte and $E0) = $20 then
     begin
-      // §4.2 — a dynamic table size update MUST appear at the beginning of a
+      // §4.2 - a dynamic table size update MUST appear at the beginning of a
       // header block, before any header field representation. One that follows
       // a field is a COMPRESSION_ERROR.
       if LSeenField then
@@ -995,7 +956,7 @@ begin
         Result := False;
         Exit;
       end;
-      // §6.3 Dynamic Table Size Update. RFC 7541 §6.3 — the new maximum MUST NOT
+      // §6.3 Dynamic Table Size Update. RFC 7541 §6.3 - the new maximum MUST NOT
       // exceed the limit the server announced (SETTINGS_HEADER_TABLE_SIZE, here
       // CServerMaxDynTableSize); a larger value is a decoding error
       // (COMPRESSION_ERROR). h2spec enforces this.
@@ -1012,7 +973,7 @@ begin
     end
     else
     begin
-      Inc(LPos); // unknown — skip
+      Inc(LPos); // unknown - skip
       Continue;
     end;
 
@@ -1104,7 +1065,7 @@ begin
     else
     begin
       // Regular header validation (RFC 7540 §8.1.2 / §8.1.2.2).
-      // Names MUST be lowercase — reject any upper-case letter.
+      // Names MUST be lowercase - reject any upper-case letter.
       for I := Low(LName) to High(LName) do
       begin
         LChar := LName[I];
@@ -1139,14 +1100,12 @@ begin
 
   // NOTE: request-level completeness checks (":method / :scheme / :path
   // present, :authority for non-CONNECT, non-empty :path except CONNECT / *")
-  // live in the HTTP/2 layer (_DecodeRequestHeaders) — HPACK is a codec and
+  // live in the HTTP/2 layer (_DecodeRequestHeaders) - HPACK is a codec and
   // is also exercised on partial blocks in unit tests. Order/duplicate/
   // lowercase/hop-by-hop validation above is codec-level and stays here.
 end;
 
-// ===========================================================================
-// EncodeResponseHeaders — HPACK encode response header block
-// ===========================================================================
+// EncodeResponseHeaders - HPACK encode response header block
 
 function TH2HpackCodec.EncodeResponseHeaders(AStatus: Integer;
   const AContentType: string; ABodyLen: Integer;
@@ -1208,9 +1167,7 @@ begin
   Result := LBuf;
 end;
 
-// ===========================================================================
-// EncodeRequestHeaders — HPACK block for PUSH_PROMISE frames
-// ===========================================================================
+// EncodeRequestHeaders - HPACK block for PUSH_PROMISE frames
 
 function TH2HpackCodec.EncodeRequestHeaders(const AMethod, APath, AScheme,
   AAuthority: string): TBytes;
@@ -1273,7 +1230,7 @@ begin
     _HpackEncodeStr(LBuf, LPos, AScheme);
   end;
 
-  // :authority — literal without indexing, name from static table index 1
+  // :authority - literal without indexing, name from static table index 1
   if AAuthority <> '' then
   begin
     _HpackEncodeInt(LBuf, LPos, 1, 4, $00);
@@ -1284,9 +1241,7 @@ begin
   Result := LBuf;
 end;
 
-// ===========================================================================
 // Unit initialization / finalization
-// ===========================================================================
 
 initialization
   GHuffLock := TCriticalSection.Create;

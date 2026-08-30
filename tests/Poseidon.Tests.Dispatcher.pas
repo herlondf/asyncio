@@ -1,18 +1,18 @@
-unit Poseidon.Tests.Dispatcher;
+﻿unit Poseidon.Tests.Dispatcher;
 
-// Unit tests for TProtocolDispatcher (#83 — Pipeline pattern).
+// Unit tests for TProtocolDispatcher (#83 - Pipeline pattern).
 //
-// Tests routing logic in isolation via a mock IDispatchCallbacks — no live
+// Tests routing logic in isolation via a mock IDispatchCallbacks - no live
 // server, no sockets.  Each test builds a TNativeConn with a pre-filled
 // accumulation buffer, creates a TDispatchConfig, and calls Dispatch.
 //
 // Fixtures:
-//   TDispatcherBasicTests       — valid requests, handler invocation, response
-//   TDispatcherSizeCheckTests   — 413 on oversized payloads
-//   TDispatcherProtocolTests    — H2/WS branching, proxy protocol
-//   TDispatcherUpgradeTests     — WebSocket/H2C upgrade detection
-//   TDispatcherLightweightTests — lightweight pipeline (no protocol checks)
-//   TDispatcherBackpressureTests — MaxQueueDepth passthrough
+//   TDispatcherBasicTests       - valid requests, handler invocation, response
+//   TDispatcherSizeCheckTests   - 413 on oversized payloads
+//   TDispatcherProtocolTests    - H2/WS branching, proxy protocol
+//   TDispatcherUpgradeTests     - WebSocket/H2C upgrade detection
+//   TDispatcherLightweightTests - lightweight pipeline (no protocol checks)
+//   TDispatcherBackpressureTests - MaxQueueDepth passthrough
 
 interface
 
@@ -46,7 +46,7 @@ type
     [Test] procedure H2Connection_HandlerNotInvoked;
     [Test] procedure WSConnection_BranchTaken;
     [Test] procedure WSConnection_HandlerNotInvoked;
-    // #199 regression — StepSizeCheck runs before StepWSBranch in the pipeline.
+    // #199 regression - StepSizeCheck runs before StepWSBranch in the pipeline.
     // It must skip WebSocket connections: a WS message whose AccumBuf exceeds
     // MaxRequestSize is NOT an oversized HTTP request and must not be 413-closed
     // before the WS branch echoes it (WS frames are capped by MaxWSFrameSize).
@@ -80,7 +80,7 @@ type
     [Test] procedure MaxQueueDepthZero_NoBackpressure;
   end;
 
-  // Regression for #172 — StepProxyProtocol must forward the socket peer and
+  // Regression for #172 - StepProxyProtocol must forward the socket peer and
   // the TrustedProxies allowlist to TryParseProxyProtocolAuto.  Before the fix
   // the caller passed neither, so the parser fail-closed and a PROXY header
   // from a trusted LB was never honored (RemoteAddr stayed the LB address).
@@ -107,9 +107,7 @@ uses
   Poseidon.Net.ProxyProtocol,
   Poseidon.Net.Dispatcher;
 
-// =============================================================================
 // Mock IDispatchCallbacks
-// =============================================================================
 
 type
   TMockCallbacks = class(TInterfacedObject, IDispatchCallbacks)
@@ -234,9 +232,7 @@ begin
   LogRequestCalled := True;
 end;
 
-// =============================================================================
 // Helpers
-// =============================================================================
 
 function MakeConn(const AMethod, APath: string;
   const ARemoteAddr: string = '127.0.0.1:12345';
@@ -330,9 +326,7 @@ begin
   Result := LConn;
 end;
 
-// =============================================================================
-// Fixture 1 — Basic dispatch
-// =============================================================================
+// Fixture 1 - Basic dispatch
 
 procedure TDispatcherBasicTests.ValidGET_HandlerInvoked;
 var
@@ -410,9 +404,7 @@ begin
   end;
 end;
 
-// =============================================================================
-// Fixture 2 — Size check (413)
-// =============================================================================
+// Fixture 2 - Size check (413)
 
 procedure TDispatcherSizeCheckTests.OversizedPayload_Returns413;
 var
@@ -473,9 +465,7 @@ begin
   end;
 end;
 
-// =============================================================================
-// Fixture 3 — Protocol branching (H2 / WS)
-// =============================================================================
+// Fixture 3 - Protocol branching (H2 / WS)
 
 procedure TDispatcherProtocolTests.H2Connection_BranchTaken;
 var
@@ -484,7 +474,7 @@ var
   LConfig: TDispatchConfig;
 begin
   LConn   := MakeConn('GET', '/');
-  LConn.AccumLen := 0;  // H2 branch — no HTTP/1.1 data to parse
+  LConn.AccumLen := 0;  // H2 branch - no HTTP/1.1 data to parse
   LConn.H2Conn := TH2Conn.Create(LConn, nil, nil, nil);
   LMock   := TMockCallbacks.Create;
   LConfig := DefaultConfig;
@@ -507,7 +497,7 @@ var
   LConfig: TDispatchConfig;
 begin
   LConn   := MakeConn('GET', '/');
-  LConn.AccumLen := 0;  // H2 branch — no HTTP/1.1 data to parse
+  LConn.AccumLen := 0;  // H2 branch - no HTTP/1.1 data to parse
   LConn.H2Conn := TH2Conn.Create(LConn, nil, nil, nil);
   LMock   := TMockCallbacks.Create;
   LConfig := DefaultConfig;
@@ -590,9 +580,7 @@ begin
   end;
 end;
 
-// =============================================================================
-// Fixture 4 — Upgrade detection
-// =============================================================================
+// Fixture 4 - Upgrade detection
 
 procedure TDispatcherUpgradeTests.WSUpgrade_UpgradeToWSCalled;
 var
@@ -643,7 +631,7 @@ var
   LReq:    string;
   LBytes:  TBytes;
 begin
-  // POST with Upgrade header — should NOT trigger upgrade
+  // POST with Upgrade header - should NOT trigger upgrade
   LReq := 'POST / HTTP/1.1'#13#10 +
           'Host: 127.0.0.1'#13#10 +
           'Connection: Upgrade'#13#10 +
@@ -670,9 +658,7 @@ begin
   end;
 end;
 
-// =============================================================================
-// Fixture 5 — Lightweight pipeline
-// =============================================================================
+// Fixture 5 - Lightweight pipeline
 
 procedure TDispatcherLightweightTests.LightweightGET_HandlerInvoked;
 var
@@ -732,9 +718,7 @@ begin
   end;
 end;
 
-// =============================================================================
-// Fixture 6 — Backpressure passthrough
-// =============================================================================
+// Fixture 6 - Backpressure passthrough
 
 procedure TDispatcherBackpressureTests.QueueNotFull_HandlerInvoked;
 var
@@ -796,9 +780,7 @@ begin
   end;
 end;
 
-// =============================================================================
-// Fixture 7 — Proxy Protocol allowlist (#172 regression)
-// =============================================================================
+// Fixture 7 - Proxy Protocol allowlist (#172 regression)
 
 procedure TDispatcherProxyProtocolTests.TrustedPeer_ParsesHeader_RewritesRemoteAddr;
 var

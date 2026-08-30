@@ -1,4 +1,4 @@
-unit Poseidon.Validation;
+﻿unit Poseidon.Validation;
 
 interface
 
@@ -16,13 +16,13 @@ uses
   {$ENDIF}
 
 type
-  // Base attribute — all validation attributes extend this
+  // Base attribute - all validation attributes extend this
   PoseidonValidationAttribute = class(TCustomAttribute)
   public
     function Validate(const AValue: TValue; const AFieldName: string; out AError: string): Boolean; virtual; abstract;
   end;
 
-  // Field is mandatory — string non-empty, object non-nil
+  // Field is mandatory - string non-empty, object non-nil
   RequiredAttribute = class(PoseidonValidationAttribute)
   public
     // Explicit ctor: FPC requires an attribute class to declare its own
@@ -52,7 +52,7 @@ type
   // String must match a basic email pattern
   EmailAttribute = class(PoseidonValidationAttribute)
   public
-    // Explicit ctor: see RequiredAttribute — needed for `[Email]` under FPC.
+    // Explicit ctor: see RequiredAttribute - needed for `[Email]` under FPC.
     constructor Create;
     function Validate(const AValue: TValue; const AFieldName: string; out AError: string): Boolean; override;
   end;
@@ -194,7 +194,7 @@ function RangeAttribute.Validate(const AValue: TValue; const AFieldName: string;
 var
   LNum: Double;
 begin
-  // #M17: guard non-numeric fields — AsExtended would raise EInvalidCast (a hard
+  // #M17: guard non-numeric fields - AsExtended would raise EInvalidCast (a hard
   // crash) instead of reporting a validation error.
   case AValue.Kind of
     tkInteger, tkInt64, tkFloat:

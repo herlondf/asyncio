@@ -46,9 +46,9 @@ type
   TWebSocketFrame = record
     FinFlag: Boolean;
     RSV1: Boolean;   // permessage-deflate: True when payload is compressed
-    RSV2: Boolean;   // RFC 6455 §5.2 — must be 0 (no negotiated extension uses it)
-    RSV3: Boolean;   // RFC 6455 §5.2 — must be 0
-    Masked: Boolean; // RFC 6455 §5.3 — client→server frames MUST have MASK=1
+    RSV2: Boolean;   // RFC 6455 §5.2 - must be 0 (no negotiated extension uses it)
+    RSV3: Boolean;   // RFC 6455 §5.2 - must be 0
+    Masked: Boolean; // RFC 6455 §5.3 - client→server frames MUST have MASK=1
     Opcode: Byte;
     Payload: TBytes;
   end;
@@ -60,10 +60,10 @@ type
   TWSDeflateUtils = class
   public
     class function Compress(const AData: TBytes): TBytes; static;
-    // Legacy API — inflates without ceiling. Retained for callers that
+    // Legacy API - inflates without ceiling. Retained for callers that
     // enforce their own bounds. Raises on stream error.
     class function Decompress(const AData: TBytes): TBytes; static;
-    // Bounded inflate — checks the running output size on EVERY iteration
+    // Bounded inflate - checks the running output size on EVERY iteration
     // against CMaxDecompressedFrame. Returns False and clears AOutput when
     // the ceiling is exceeded or the stream is malformed. Callers MUST
     // treat False as a fatal protocol error and close with 1009.
@@ -75,7 +75,7 @@ type
   strict private
     // Zero-copy frame builder kernel.
     // Extends APayload at the front (shifts data right),
-    // then writes the RFC 6455 frame header in place — no second allocation.
+    // then writes the RFC 6455 frame header in place - no second allocation.
     class procedure _PrependHeader(AOpcode: Byte; AFin: Boolean;
       var APayload: TBytes); static;
   public
@@ -99,10 +99,10 @@ type
     // If AFrame.RSV1 = True and the payload is non-empty, decompresses
     // AFrame.Payload in place and clears AFrame.RSV1.
     // No-op when RSV1 = False (uncompressed frame).
-    // Legacy API — no size ceiling. Use TryApplyRXDeflate on hot paths.
+    // Legacy API - no size ceiling. Use TryApplyRXDeflate on hot paths.
     class procedure ApplyRXDeflate(var AFrame: TWebSocketFrame); static;
 
-    // Bounded variant of ApplyRXDeflate — enforces CMaxDecompressedFrame.
+    // Bounded variant of ApplyRXDeflate - enforces CMaxDecompressedFrame.
     // Returns False when the inflated payload would exceed the ceiling or
     // the stream is malformed; caller MUST close the connection with 1009.
     // On True, AFrame.Payload is replaced with the inflated content and
@@ -116,7 +116,6 @@ type
     class function BuildFrame(AOpcode: Byte; AFin: Boolean; ADeflate: Boolean;
       const APayload: TBytes): TBytes; overload; static;
 
-    // Convenience helpers
     class function TextFrame(const AText: string): TBytes; static;
     class function BinaryFrame(const AData: TBytes): TBytes; static;
     class function CloseFrame(ACode: Word = 1000): TBytes; static;
@@ -301,9 +300,7 @@ begin
   Result := FDeflateEnabled;
 end;
 
-// ===========================================================================
-// TWSDeflateUtils — raw DEFLATE codec (RFC 7692 §7.2)
-// ===========================================================================
+// TWSDeflateUtils - raw DEFLATE codec (RFC 7692 §7.2)
 
 class function TWSDeflateUtils.Compress(const AData: TBytes): TBytes;
 // Uses the raw zlib deflate API with Z_SYNC_FLUSH so that the output ends with
@@ -394,7 +391,7 @@ begin
     try
       LZ := TZDecompressionStream.Create(LIn, -15);
       try
-        // Read in a loop until EOF — do NOT pass 0 to CopyFrom because that
+        // Read in a loop until EOF - do NOT pass 0 to CopyFrom because that
         // uses LZ.Size (= compressed size) as the byte count, which stops
         // short of the full decompressed output.
         repeat
@@ -402,7 +399,7 @@ begin
           if LRead > 0 then
           begin
             LOut.Write(LBuf[0], LRead);
-            // Enforce the ceiling on EVERY iteration — a bomb inflates
+            // Enforce the ceiling on EVERY iteration - a bomb inflates
             // fast, we must abort before allocating the whole payload.
             if LOut.Size > CMaxDecompressedFrame then
             begin
@@ -415,7 +412,7 @@ begin
         LZ.Free;
       end;
     except
-      // Malformed DEFLATE stream — convert to explicit failure result so
+      // Malformed DEFLATE stream - convert to explicit failure result so
       // the caller can close with 1009. NOT a silent swallow: Result=False
       // is a hard signal upstream.
       on Exception do
@@ -437,7 +434,7 @@ end;
 
 class function TWSDeflateUtils.Decompress(const AData: TBytes): TBytes;
 begin
-  // Legacy path — delegates to bounded variant. On failure raises so
+  // Legacy path - delegates to bounded variant. On failure raises so
   // existing callers that do not check status still notice the error.
   if not TryDecompress(AData, Result) then
     raise Exception.Create('WSDeflate: decompression failed or exceeded ceiling');
@@ -549,7 +546,7 @@ begin
     Inc(LPos, 8);
   end;
 
-  // RFC 6455 §5.2 — MSB of 64-bit payload length must be 0
+  // RFC 6455 §5.2 - MSB of 64-bit payload length must be 0
   if LPLen < 0 then Exit;
 
   // Reject oversized payloads to prevent OOM from near-MaxInt64 values
@@ -597,7 +594,7 @@ begin
   else
     LHdrLen := 10;
 
-  // Extend the existing buffer and shift payload right — no second allocation.
+  // Extend the existing buffer and shift payload right - no second allocation.
   SetLength(APayload, LHdrLen + LLen);
   if LLen > 0 then
     Move(APayload[0], APayload[LHdrLen], LLen);
@@ -637,7 +634,7 @@ var
 begin
   LLen := Length(APayload);
 
-  // RFC 6455 §5.2 — opcodes 0x3-0x7 and 0xB-0xF are reserved
+  // RFC 6455 §5.2 - opcodes 0x3-0x7 and 0xB-0xF are reserved
   if (AOpcode > $0A) or ((AOpcode > $02) and (AOpcode < $08)) then
     raise EArgumentException.Create(
       'Invalid WebSocket opcode: 0x' + IntToHex(AOpcode, 2));

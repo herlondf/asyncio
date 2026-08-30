@@ -1,6 +1,6 @@
-unit Poseidon.Net.HTTP2.Manager;
+﻿unit Poseidon.Net.HTTP2.Manager;
 
-// THTTP2Manager — HTTP/2 upgrade, stream handling, push.
+// THTTP2Manager - HTTP/2 upgrade, stream handling, push.
 //
 // Extracted from TPoseidonNativeServer. Manages H2 upgrade (h2c cleartext),
 // and provides callbacks for TH2Conn (send, close, request dispatch).
@@ -26,7 +26,7 @@ uses
   Poseidon.Net.HTTP2;
 
 type
-  // Transport callbacks — injected by the server
+  // Transport callbacks - injected by the server
   TH2TransportSend  = reference to procedure(AConn: Pointer; const AData: TBytes);
   TH2TransportClose = reference to procedure(AConn: Pointer);
   TH2TransportRecv  = reference to procedure(AConn: Pointer);
@@ -48,7 +48,7 @@ type
 
     procedure UpgradeToH2C(AConn: Pointer; const AReq: TPoseidonNativeRequest);
 
-    // TH2Conn callbacks — registered as procedure of object via method references
+    // TH2Conn callbacks - registered as procedure of object via method references
     procedure H2Send(AConn: Pointer; const AData: TBytes);
     procedure H2Close(AConn: Pointer);
     procedure H2OnRequest(const AReq: TH2RequestData;

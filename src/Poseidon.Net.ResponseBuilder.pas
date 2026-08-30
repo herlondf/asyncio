@@ -1,12 +1,12 @@
-unit Poseidon.Net.ResponseBuilder;
+﻿unit Poseidon.Net.ResponseBuilder;
 
-// Pre-encoded HTTP/1.1 response builder (SRP refactoring R-3).
+// Pre-encoded HTTP/1.1 response builder.
 //
 // Encapsulates the W3-optimised response assembly logic extracted from
 // TPoseidonNativeServer._BuildResponse.
 //
 // All global byte-arrays are pre-encoded once at unit initialization, so the
-// hot path consists only of Move() calls — no UTF-16→ASCII conversion per
+// hot path consists only of Move() calls - no UTF-16→ASCII conversion per
 // request.
 
 interface
@@ -68,8 +68,6 @@ function BuildHTTPResponseHeaders(
   const AServerBanner: string;
   out AHdrActualLen: Integer): TBytes;
 
-// Pre-encoded default error body: {"error":"Internal Server Error"}
-// Use as initial value in the dispatch loop before calling the user handler.
 function DefaultErrorBody: TBytes;
 
 // Releases this thread's cached Date-header string. threadvars of managed
@@ -137,9 +135,7 @@ begin
     Move(ASrc[0], Result[0], Length(ASrc));
 end;
 
-// ---------------------------------------------------------------------------
-// Pre-encoded response fragments — initialized once in `initialization`.
-// ---------------------------------------------------------------------------
+// Pre-encoded response fragments - initialized once in `initialization`.
 var
   G_STATUS_200, G_STATUS_201, G_STATUS_204,
   G_STATUS_301, G_STATUS_302, G_STATUS_303, G_STATUS_304,
@@ -151,18 +147,14 @@ var
   G_CONN_KA: TBytes;
   G_CONN_CLOSE: TBytes;
   G_CRLF: TBytes;
-  // Pre-encoded common Content-Type values — Move()'d into Result when the
-  // response uses one of these (~95% of REST APIs hit application/json).
   G_CT_JSON, G_CT_TEXT, G_CT_HTML, G_CT_PROBLEM, G_CT_FORM, G_CT_OCTET: TBytes;
   G_DEFAULT_ERROR_BODY: TBytes;
 
-// ---------------------------------------------------------------------------
 // Internal helpers
-// ---------------------------------------------------------------------------
 
 // Sanitize a response header value by truncating at the first CR/LF/NUL.
 // Truncating (rather than stripping) ensures injected text never reaches the
-// wire — e.g. "value\r\nX-Evil: hdr" → "value", not "valueX-Evil: hdr".
+// wire - e.g. "value\r\nX-Evil: hdr" → "value", not "valueX-Evil: hdr".
 function _SanitizeHeaderValue(const AValue: string): string;
 var
   LPos: Integer;
@@ -176,7 +168,6 @@ begin
   Result := AValue;
 end;
 
-// Reason phrase for status codes not covered by the pre-encoded status lines.
 function _ReasonPhrase(AStatus: Integer): string;
 begin
   case AStatus of
@@ -214,7 +205,7 @@ begin
 end;
 
 // Per-thread cache of the formatted Date string, refreshed at most once per
-// second — avoids a DecodeDate/Format on every response while staying
+// second - avoids a DecodeDate/Format on every response while staying
 // lock-free (each IO thread owns its own copy).
 threadvar
   GDateCacheTick: Int64;
@@ -235,7 +226,7 @@ var
   LY, LMo, LD: Word;
   LH, LMi, LS, LMs: Word;
 begin
-  // #M15: gate on the cheap monotonic tick FIRST — the previous code paid the
+  // #M15: gate on the cheap monotonic tick FIRST - the previous code paid the
   // Now() + TTimeZone.Local.ToUniversalTime conversion on every response before
   // the cache check. Recompute (incl. the timezone conversion) at most once/sec.
   LNowTick := TThread.GetTickCount64;
@@ -331,7 +322,7 @@ begin
   else
   begin
     // Sanitize CR/LF/NUL to defeat response splitting via handler-supplied
-    // Content-Type (issue #159 — same policy as extra headers).
+    // Content-Type (issue #159 - same policy as extra headers).
     Result := _AsciiBytes(_SanitizeHeaderValue(AContentType));
     AAlloc := True;
   end;
@@ -359,17 +350,14 @@ begin
     500: Result := CopyBytes(G_STATUS_500);
     503: Result := CopyBytes(G_STATUS_503);
   else
-    // Slow path for uncommon codes — build inline with a proper reason phrase.
     Result := _AsciiBytes(
       'HTTP/1.1 ' + IntToStr(AStatus) + ' ' + _ReasonPhrase(AStatus) + #13#10);
   end;
 end;
 
-// ---------------------------------------------------------------------------
 // Internal core: writes the response into ABuf starting at offset 0.
 // ABuf must be pre-allocated with Length >= result of the sizing pass.
 // Returns the number of bytes written.
-// ---------------------------------------------------------------------------
 
 function _BuildCore(ABuf: TBytes; AStatus: Integer;
   const AContentType: string; const ABody: TBytes; AKeepAlive: Boolean;
@@ -470,9 +458,7 @@ begin
           + ABodyLen;
 end;
 
-// ---------------------------------------------------------------------------
 // Public API
-// ---------------------------------------------------------------------------
 
 function BuildHTTPResponse(AStatus: Integer;
   const AContentType: string; const ABody: TBytes; AKeepAlive: Boolean;
@@ -496,7 +482,7 @@ function BuildHTTPResponsePooled(AStatus: Integer;
   ASecureHeaders: Boolean; const AServerBanner: string;
   out AActualLen: Integer): TBytes;
 // Acquires a buffer from TBufferPool instead of heap-allocating.
-// The returned TBytes may be larger than AActualLen — caller must pass
+// The returned TBytes may be larger than AActualLen - caller must pass
 // AActualLen to the send layer and release the buffer after send.
 var
   LTotal: Integer;
@@ -510,7 +496,7 @@ begin
     LExtraStr);
 end;
 
-// Build headers only — body sent separately via vectored I/O.
+// Build headers only - body sent separately via vectored I/O.
 function BuildHTTPResponseHeaders(AStatus: Integer;
   const AContentType: string; ABodyLen: Integer; AKeepAlive: Boolean;
   const AExtra: TArray<TPair<string,string>>;
@@ -592,7 +578,6 @@ begin
 end;
 
 initialization
-  // Pre-encode common HTTP response fragments once.
   G_STATUS_200 := TEncoding.ASCII.GetBytes('HTTP/1.1 200 OK'#13#10);
   G_STATUS_201 := TEncoding.ASCII.GetBytes('HTTP/1.1 201 Created'#13#10);
   G_STATUS_204 := TEncoding.ASCII.GetBytes('HTTP/1.1 204 No Content'#13#10);
@@ -616,7 +601,6 @@ initialization
   G_CONN_KA := TEncoding.ASCII.GetBytes('Connection: keep-alive'#13#10);
   G_CONN_CLOSE := TEncoding.ASCII.GetBytes('Connection: close'#13#10);
   G_CRLF := TEncoding.ASCII.GetBytes(#13#10);
-  // Pre-encode common content-type values
   G_CT_JSON := TEncoding.ASCII.GetBytes('application/json');
   G_CT_TEXT := TEncoding.ASCII.GetBytes('text/plain');
   G_CT_HTML := TEncoding.ASCII.GetBytes('text/html');

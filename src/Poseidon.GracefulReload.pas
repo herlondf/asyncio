@@ -1,4 +1,4 @@
-unit Poseidon.GracefulReload;
+﻿unit Poseidon.GracefulReload;
 
 // Graceful reload (zero-downtime restart) support.
 //
@@ -33,15 +33,13 @@ uses
   System.SysUtils;
   {$ENDIF}
 
-// Write the current process PID to the specified file.
 procedure WritePIDFile(const APath: string);
 
-// Remove a previously created PID file.
 procedure RemovePIDFile(const APath: string);
 
 {$IFNDEF MSWINDOWS}
 // Install a SIGTERM/SIGINT handler. The signal handler only sets an atomic
-// flag — call CheckShutdownSignal periodically to invoke the callback safely.
+// flag - call CheckShutdownSignal periodically to invoke the callback safely.
 procedure InstallSignalHandler(AOnShutdown: TProc);
 
 // Poll the shutdown flag. If a signal was received, invokes the callback
@@ -85,7 +83,7 @@ begin
     {$ENDIF}
     CloseFile(LFile);
   except
-    on E: Exception do; // Best-effort — don't crash if /run is read-only
+    on E: Exception do; // Best-effort - don't crash if /run is read-only
   end;
 end;
 
@@ -107,14 +105,14 @@ end;
 
 {$IFNDEF MSWINDOWS}
 var
-  // Atomic flag set by signal handler — async-signal-safe (no heap, no locks).
+  // Atomic flag set by signal handler - async-signal-safe (no heap, no locks).
   // The main thread polls this via CheckShutdownSignal.
   GShutdownFlag: Integer = 0;
   GShutdownProc: TProc;
 
 procedure _SigTermHandler(ASigNum: Integer); cdecl;
 begin
-  // Only set an atomic flag — async-signal-safe.
+  // Only set an atomic flag - async-signal-safe.
   // TProc invocation moved to CheckShutdownSignal (called from main loop).
   GShutdownFlag := 1;
 end;
@@ -132,7 +130,7 @@ procedure InstallSignalHandler(AOnShutdown: TProc);
 var
   LSA: sigaction_t;
 begin
-  // Signal registration must happen regardless of IsConsole — a systemd
+  // Signal registration must happen regardless of IsConsole - a systemd
   // unit / detached daemon has no controlling TTY but still needs to react
   // to SIGTERM/SIGHUP for graceful reload. The IsConsole gate belongs only
   // to the Ctrl-C polling loop on Windows.

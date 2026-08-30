@@ -1,18 +1,18 @@
-unit Poseidon.Net.IO.Epoll;
+﻿unit Poseidon.Net.IO.Epoll;
 
-// TEpollBackend — Linux epoll(7) backend.
+// TEpollBackend - Linux epoll(7) backend.
 //
 // Shared-nothing per-core architecture.
 // Each worker thread has its OWN epoll fd + listen socket (SO_REUSEPORT).
 // The kernel distributes incoming connections across listen sockets via hash.
-// Zero contention BETWEEN cores — no shared epoll fd, no dispatch queue.
+// Zero contention BETWEEN cores - no shared epoll fd, no dispatch queue.
 //
 // Accept and recv run inline on the owning core thread. Send does NOT: with
 // SyncDispatch off (the Delphi default) the request pipeline runs on the
 // request worker pool, so PostSend/PostSendV/_FlushSend are entered by a pool
 // thread while the core thread can concurrently reach _FlushSend for the same
 // connection via EPOLLOUT. All send state (PendingSend / PendingSendActual /
-// SentBytes / SendBacklog) is therefore serialized on TNativeConn.Lock — the
+// SentBytes / SendBacklog) is therefore serialized on TNativeConn.Lock - the
 // same discipline the io_uring backend applies. Callbacks are always invoked
 // OUTSIDE that lock, because OnConnError -> _CloseConn can free the lock.
 
@@ -71,7 +71,6 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    // IIOBackend
     procedure SetInlineDispatch(AEnabled: Boolean);
     procedure StartListening(const AHost: string; APort: Integer;
       AWorkerCount: Integer; AFastOpen: Boolean; ACallbacks: IIOCallbacks;
@@ -91,9 +90,6 @@ type
 
 implementation
 
-// ---------------------------------------------------------------------------
-// epoll syscalls and types
-// ---------------------------------------------------------------------------
 
 const
   CRecvBufSize = 32768;
@@ -117,19 +113,19 @@ const
 
   CTCP_FASTOPEN = 23;
   CTCP_DEFER_ACCEPT = 9;
-  // SO_ZEROCOPY / MSG_ZEROCOPY removed — requires error queue polling
+  // SO_ZEROCOPY / MSG_ZEROCOPY removed - requires error queue polling
   // (MSG_ERRQUEUE) to avoid data corruption. SO_BUSY_POLL removed from default
-  // path — burns CPU, should be opt-in for latency-critical scenarios.
+  // path - burns CPU, should be opt-in for latency-critical scenarios.
 
   CListenSentinel = Pointer(1);
 
   // Outcome of the locked send-installation step, decided under LConn.Lock and
   // acted on by the caller AFTER the lock is released (the callbacks below can
   // reach _CloseConn, which frees LConn.Lock itself once the last ref drops).
-  CSendQueued   = 0;  // appended to the backlog — a send was already in flight
-  CSendComplete = 1;  // written in full inline — fire OnSendComplete
-  CSendFailed   = 2;  // hard socket error — fire OnConnError
-  CSendFlush    = 3;  // installed as the active send — caller drives _FlushSend
+  CSendQueued   = 0;  // appended to the backlog - a send was already in flight
+  CSendComplete = 1;  // written in full inline - fire OnSendComplete
+  CSendFailed   = 2;  // hard socket error - fire OnConnError
+  CSendFlush    = 3;  // installed as the active send - caller drives _FlushSend
 
   // Headroom added when growing SendBacklog, so a burst of small out-of-band
   // sends does not realloc on every append.
@@ -146,7 +142,6 @@ type
     data: epoll_data_t;
   end;
 
-  // Vectored I/O
   iovec = record
     iov_base: Pointer;
     iov_len: NativeUInt;
@@ -188,7 +183,6 @@ threadvar
   GCurrentEpollFd: Integer;
 
 type
-  // Helper thread class to capture core index by value (avoids closure bug)
   TCoreWorkerThread = class(TThread)
   private
     FBackend: TEpollBackend;
@@ -209,7 +203,7 @@ end;
 
 procedure TCoreWorkerThread.Execute;
 begin
-  // L4: drenar TLC do worker no fim — evita vazamento em graceful reload
+  // L4: drenar TLC do worker no fim - evita vazamento em graceful reload
   try
     FBackend._CoreWorkerLoop(FCoreIdx);
   finally
@@ -217,9 +211,6 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
-// TEpollBackend
-// ---------------------------------------------------------------------------
 
 constructor TEpollBackend.Create;
 begin
@@ -310,7 +301,6 @@ end;
 
 procedure TEpollBackend.SetInlineDispatch(AEnabled: Boolean);
 begin
-  // No submission batching in the epoll backend — no-op.
 end;
 
 procedure TEpollBackend.StopAccept;
@@ -449,7 +439,7 @@ begin
   end;
 end;
 
-// Vectored send — writev() headers+body in one syscall. Everything that touches
+// Vectored send - writev() headers+body in one syscall. Everything that touches
 // the connection's send state happens under LConn.Lock; the caller fires the
 // resulting callback afterwards, outside the lock.
 function TEpollBackend._WritevOrQueue(AConn: Pointer;
@@ -469,7 +459,7 @@ begin
 
   LConn.Lock.Enter;
   try
-    // A send is still draining — writev() now would splice these bytes into the
+    // A send is still draining - writev() now would splice these bytes into the
     // middle of the response still on the wire. Backlog is the only safe path.
     if LConn.PendingSend <> nil then
     begin
@@ -629,9 +619,6 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
-// Internal: non-blocking send loop — uses connection's OwnerEpollFd
-// ---------------------------------------------------------------------------
 
 // Drains the active send under LConn.Lock and reports what the caller must do
 // once the lock is released.
@@ -640,7 +627,7 @@ end;
 // pending-send probe in _CoreWorkerLoop) and a request worker running the
 // dispatch both reach the send path for the SAME connection. Unsynchronised,
 // both could run the drain loop to completion and both return the SAME pooled
-// buffer — which then sits in two thread caches at once and gets handed to two
+// buffer - which then sits in two thread caches at once and gets handed to two
 // connections. glibc reports that as `double free or corruption`,
 // `malloc(): unaligned tcache chunk detected` or `corrupted size vs. prev_size`.
 //
@@ -650,7 +637,7 @@ end;
 // AFromCore marks the call as coming from the epoll core thread, which must
 // NEVER block: a request worker holds LConn.Lock for the WHOLE dispatch, and a
 // handler that blocks for seconds (DB, upstream web service) would otherwise
-// freeze the core thread — and with it every other connection that core owns.
+// freeze the core thread - and with it every other connection that core owns.
 // The core thread therefore only TRIES the lock; on contention it re-arms
 // EPOLLOUT and leaves the drain to the thread that holds the lock.
 procedure TEpollBackend._DrainSendLocked(AConn: Pointer; AFromCore: Boolean;
@@ -751,11 +738,11 @@ end;
 
 // Re-arms EPOLLOUT so a send this thread could not drain is retried later.
 // Lock-free by design: it is called precisely when the lock is unavailable.
-// A spurious wake is harmless — _FlushSend then finds PendingSend = nil.
+// A spurious wake is harmless - _FlushSend then finds PendingSend = nil.
 // #234: TryAcquires SocketOpGuard against a concurrent SocketClose (e.g.
 // TIdleSweepManager force-closing this same connection on another thread).
-// On contention, skip entirely rather than wait — never block the core
-// thread — the connection is being closed anyway, so a missed rearm is moot.
+// On contention, skip entirely rather than wait - never block the core
+// thread - the connection is being closed anyway, so a missed rearm is moot.
 procedure TEpollBackend._ArmSendReady(AConn: Pointer);
 var
   LConn: TNativeConn absolute AConn;
@@ -795,9 +782,6 @@ begin
     FCallbacks.OnSendComplete(AConn);
 end;
 
-// ---------------------------------------------------------------------------
-// Internal: read one chunk
-// ---------------------------------------------------------------------------
 
 procedure TEpollBackend._DoRecv(AConn: Pointer);
 var
@@ -814,10 +798,8 @@ begin
     FCallbacks.OnConnError(AConn);
 end;
 
-// ---------------------------------------------------------------------------
-// Per-core worker loop — shared-nothing architecture.
+// Per-core worker loop - shared-nothing architecture.
 // Each worker owns: listen socket + epoll fd + its connections.
-// ---------------------------------------------------------------------------
 
 procedure TEpollBackend._CoreWorkerLoop(ACoreIdx: Integer);
 var
@@ -864,7 +846,7 @@ begin
           LAddrLen := SizeOf(LAddr);
           LNewFd := _LinuxAccept4(LListenFd, @LAddr, @LAddrLen,
             SOCK_NONBLOCK or SOCK_CLOEXEC);
-          if LNewFd < 0 then Break;  // EAGAIN or error — no more pending
+          if LNewFd < 0 then Break;  // EAGAIN or error - no more pending
 
           LOne := 1;
           _LinuxSetsockopt(LNewFd, IPPROTO_TCP, TCP_NODELAY, @LOne, SizeOf(LOne));
@@ -883,7 +865,7 @@ begin
       end;
 
       LConn := TNativeConn(LEvents[I].data.ptr);
-      // #234: LEvents[I].data.ptr is a weak pointer — the kernel's epoll
+      // #234: LEvents[I].data.ptr is a weak pointer - the kernel's epoll
       // interest list holds it independent of this connection's Delphi-side
       // lifetime, so it can already be mid-Destroy (or fully freed) by the
       // time this event is dequeued. TryAddRef atomically refuses to
@@ -892,7 +874,7 @@ begin
       if not LConn.TryAddRef then Continue;
       // Hold a ref for the whole event: _DoRecv / OnConnError can reach
       // _CloseConn, which drops the server ref (this backend takes none per
-      // operation) and Destroys the connection — while the EPOLLOUT probe
+      // operation) and Destroys the connection - while the EPOLLOUT probe
       // below still reads LConn.PendingSend and _FlushSend still needs
       // LConn.Lock to exist.
       try
@@ -931,7 +913,7 @@ end;
 
 initialization
   // #213: a network server must never be killed by SIGPIPE when it writes to a
-  // socket whose peer already closed/reset the connection — h2spec and abusive
+  // socket whose peer already closed/reset the connection - h2spec and abusive
   // clients trigger this constantly. MSG_NOSIGNAL guards the epoll send loop,
   // but not writev() nor OpenSSL/libc internals, so ignore SIGPIPE process-wide
   // as the authoritative guard. This unit is always in the Linux `uses` graph

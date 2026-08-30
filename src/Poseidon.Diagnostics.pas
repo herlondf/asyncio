@@ -1,6 +1,6 @@
 ﻿unit Poseidon.Diagnostics;
 
-// Crash diagnostics — turns a fatal signal into a usable report instead of a
+// Crash diagnostics - turns a fatal signal into a usable report instead of a
 // bare address.
 //
 // WHY: without this, a heap corruption in a long-running server surfaces on
@@ -15,22 +15,22 @@
 // metadata, so a backtrace taken from the SIGABRT handler points straight at
 // the malloc/free call chain that tripped it.
 //
-// ASYNC-SIGNAL SAFETY: the handler must not allocate — the heap is exactly
+// ASYNC-SIGNAL SAFETY: the handler must not allocate - the heap is exactly
 // what is already broken when SIGABRT arrives. So it only calls write(2),
 // backtrace(3) and backtrace_symbols_fd(3). Everything it prints is a literal
 // or is formatted into a stack buffer; there is no string type in the path
 // (passing a literal to a `string`/`RawByteString` parameter can allocate).
-// backtrace_symbols_fd is specified as not calling malloc — unlike
+// backtrace_symbols_fd is specified as not calling malloc - unlike
 // backtrace_symbols, which does and must never be used here.
 //
-// After reporting, the signal goes to the handler installed before this one —
-// on a Delphi app that is the RTL's SignalDispatcher, which turns SIGSEGV/BUS/
-// FPE/ILL into EAccessViolation. A nil deref then reports its stack here and
-// fails as a 500 in that request, instead of taking the process down with it.
+// After reporting, the signal goes to the handler installed before this one. On
+// a Delphi app that is the RTL's SignalDispatcher, which turns SIGSEGV/BUS/FPE/
+// ILL into EAccessViolation, so a nil deref reports its stack here and fails as
+// a 500 instead of taking the process down.
 //
-// SIGABRT is never delegated (glibc raises it with the heap already corrupt),
-// nor is a signal with no previous handler: those restore the default
-// disposition and re-raise, so the kernel can still write a core dump.
+// SIGABRT is never delegated, since glibc raises it with the heap already
+// corrupt, and neither is a signal with no previous handler: those restore the
+// default disposition and re-raise so the kernel can still write a core dump.
 //
 // For readable frames the binary needs symbols: link with -g (dcclinux64 keeps
 // them by default) and do NOT strip. Addresses still print without symbols.
@@ -107,7 +107,7 @@ var
   GInstanceId: array[0..CInstanceIdLen] of AnsiChar;
   GInstanceIdReady: Integer = 0;
 
-// Not called from signal context — TGUID.NewGuid is a normal (allocating)
+// Not called from signal context - TGUID.NewGuid is a normal (allocating)
 // call, safe here because this only ever runs from ordinary thread code
 // (InstanceId's first call, or InstallCrashHandler). _CrashHandler itself
 // only ever READS the already-populated GInstanceId buffer.
@@ -166,7 +166,7 @@ begin
   __write(CStdErr, @LBuf[LPos + 1], High(LBuf) - LPos);
 end;
 
-// Returns a pointer to a literal — no allocation, unlike a string result.
+// Returns a pointer to a literal - no allocation, unlike a string result.
 function _SignalName(ASigNum: Integer): PAnsiChar;
 begin
   if ASigNum = SIGSEGV then

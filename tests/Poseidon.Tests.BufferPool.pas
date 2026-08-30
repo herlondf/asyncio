@@ -1,4 +1,4 @@
-unit Poseidon.Tests.BufferPool;
+﻿unit Poseidon.Tests.BufferPool;
 
 // DUnitX unit tests for Poseidon.Net.Pool.Buffer (TBufferPool).
 //
@@ -186,7 +186,7 @@ var
   LSecond: TBytes;
 begin
   // After releasing, Acquire should return a buffer of the same size
-  // (verifies that the pool stack is functional, not that it's the same pointer —
+  // (verifies that the pool stack is functional, not that it's the same pointer -
   //  managed TBytes identity is opaque, length is the observable contract).
   LFirst := TBufferPool.Acquire(0);
   TBufferPool.Release(LFirst);

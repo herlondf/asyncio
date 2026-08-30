@@ -1,13 +1,13 @@
-unit Poseidon.Net.Security;
+﻿unit Poseidon.Net.Security;
 
 // Pure validation functions for HTTP security checks.
-// No I/O, no server state — fully unit-testable in isolation.
+// No I/O, no server state - fully unit-testable in isolation.
 //
-// IsMethodAllowed      — enforces an allowlist of HTTP verbs
-// IsPathSafe           — rejects path-traversal sequences
-// StripCRLF            — removes CR/LF/NUL from response header values
-// HasRequestSmuggling  — detects Content-Length + chunked conflict (RFC 7230 §3.3.3)
-// IsIPInCIDR           — checks whether a remote address string falls inside a CIDR block
+// IsMethodAllowed      - enforces an allowlist of HTTP verbs
+// IsPathSafe           - rejects path-traversal sequences
+// StripCRLF            - removes CR/LF/NUL from response header values
+// HasRequestSmuggling  - detects Content-Length + chunked conflict (RFC 7230 §3.3.3)
+// IsIPInCIDR           - checks whether a remote address string falls inside a CIDR block
 
 interface
 
@@ -38,7 +38,7 @@ function IsPathSafe(const APath: string): Boolean;
 function StripCRLF(const AValue: string): string;
 
 // Returns True when both Content-Length and Transfer-Encoding: chunked are
-// present in the same request — a classic request-smuggling vector (RFC 7230 §3.3.3).
+// present in the same request - a classic request-smuggling vector (RFC 7230 §3.3.3).
 // ACLPresent: whether a Content-Length header was found.
 // AIsChunked:  whether Transfer-Encoding contains "chunked".
 function HasRequestSmuggling(ACLPresent: Boolean; AIsChunked: Boolean): Boolean;
@@ -46,7 +46,7 @@ function HasRequestSmuggling(ACLPresent: Boolean; AIsChunked: Boolean): Boolean;
 // Returns True when ARemoteAddr (format "IP:port" or bare "IP") falls inside
 // the IPv4 CIDR block ACIDR (e.g. "10.0.0.0/8", "192.168.1.0/24").
 // Fails CLOSED (returns False) on any parse error, malformed CIDR, out-of-range
-// octet (>255) or IPv6 input — an invalid input must never be treated as a match.
+// octet (>255) or IPv6 input - an invalid input must never be treated as a match.
 function IsIPInCIDR(const ARemoteAddr, ACIDR: string): Boolean;
 
 implementation
@@ -83,7 +83,7 @@ begin
   if Pos('\', APath) > 0 then Exit;
   // URL-encoded backslash (%5c)
   if Pos('%5c', LLower) > 0 then Exit;
-  // Double-dot traversal — all encoding variants
+  // Double-dot traversal - all encoding variants
   if Pos('..', LLower) > 0 then Exit;
   if Pos('%2e%2e', LLower) > 0 then Exit;
   if Pos('%2e.', LLower) > 0 then Exit;
@@ -129,14 +129,14 @@ begin
     LIPStr := StringReplace(LIPStr, ']', '', []);
 
     LSlash := Pos('/', ACIDR);
-    if LSlash <= 0 then Exit;  // not a valid CIDR — fail-close
+    if LSlash <= 0 then Exit;  // not a valid CIDR - fail-close
     LCIDRHost := Copy(ACIDR, 1, LSlash - 1);
     LPrefix   := StrToIntDef(Copy(ACIDR, LSlash + 1, MaxInt), -1);
     if (LPrefix < 0) or (LPrefix > 32) then Exit;
 
     LIPParts := LIPStr.Split(['.']);
     LNParts  := LCIDRHost.Split(['.']);
-    // IPv6 addresses won't produce 4 octets — fail-close (no match)
+    // IPv6 addresses won't produce 4 octets - fail-close (no match)
     // to prevent IPv6 CIDR bypass.
     if (Length(LIPParts) <> 4) or (Length(LNParts) <> 4) then
       Exit;
@@ -163,7 +163,7 @@ begin
     Result := (LIPNum and LMask) = (LNetNum and LMask);
   except
     on E: Exception do
-      Result := False;  // never raise — fail-close
+      Result := False;  // never raise - fail-close
   end;
 end;
 

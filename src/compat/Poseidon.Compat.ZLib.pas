@@ -1,9 +1,9 @@
-unit Poseidon.Compat.ZLib;
+﻿unit Poseidon.Compat.ZLib;
 
 // Free Pascal ZLib compatibility for the WebSocket permessage-deflate codec
 // (issue #5). It re-exports the small slice of System.ZLib that
-// Poseidon.Net.WebSocket uses — the raw DEFLATE/INFLATE C API and
-// TZDecompressionStream — under CLEAN names.
+// Poseidon.Net.WebSocket uses - the raw DEFLATE/INFLATE C API and
+// TZDecompressionStream - under CLEAN names.
 //
 // Why a dedicated unit and not Poseidon.Compat: FPC's zbase/zinflate/zdeflate
 // export the inflate state-machine enum whose members include COPY, LEN, DIST,
@@ -36,7 +36,7 @@ type
   z_stream = zbase.z_stream;
 
 const
-  // Fixed by the zlib format/ABI — declared literally so a renamed constant in
+  // Fixed by the zlib format/ABI - declared literally so a renamed constant in
   // a future FPC zbase cannot silently break the build.
   Z_NO_FLUSH            = 0;
   Z_SYNC_FLUSH          = 2;

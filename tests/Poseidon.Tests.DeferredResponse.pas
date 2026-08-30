@@ -1,13 +1,13 @@
-unit Poseidon.Tests.DeferredResponse;
+﻿unit Poseidon.Tests.DeferredResponse;
 
-// DUnitX integration tests for deferred (asynchronous) responses — Ctx.Defer.
+// DUnitX integration tests for deferred (asynchronous) responses - Ctx.Defer.
 //
-// Fixture 1 — TPoseidonDeferredTests (port 19010): async worker-pool dispatch
+// Fixture 1 - TPoseidonDeferredTests (port 19010): async worker-pool dispatch
 //   * a handler defers, then completes the reply from a DIFFERENT thread
 //   * middleware headers present at Defer time are preserved
 //   * a dropped responder force-closes the connection (no client hang)
 //   * many concurrent deferred requests all complete
-// Fixture 2 — TPoseidonDeferredSyncTests (port 19011): SyncDispatch=True
+// Fixture 2 - TPoseidonDeferredSyncTests (port 19011): SyncDispatch=True
 //   * the same async completion works while handlers run inline on the IO thread
 //     (the core reason deferred responses exist: they unblock the fast path)
 //
@@ -24,7 +24,7 @@ uses
 type
   {$M+}
   [TestFixture]
-  TPoseidonDeferredTests = class  // port 19010 — async dispatch
+  TPoseidonDeferredTests = class  // port 19010 - async dispatch
   private
     FEvent: TEvent;
   public
@@ -44,7 +44,7 @@ type
   end;
 
   [TestFixture]
-  TPoseidonDeferredSyncTests = class  // port 19011 — SyncDispatch inline
+  TPoseidonDeferredSyncTests = class  // port 19011 - SyncDispatch inline
   private
     FEvent: TEvent;
   public
@@ -77,9 +77,7 @@ const
   DEFER_PORT      = 19010;
   DEFER_SYNC_PORT = 19011;
 
-// ---------------------------------------------------------------------------
-// Raw TCP helpers (blocking Winsock2) — a request + complete-response read.
-// ---------------------------------------------------------------------------
+// Raw TCP helpers (blocking Winsock2) - a request + complete-response read.
 
 function DConnect(APort: Word): TSocket;
 var
@@ -185,7 +183,7 @@ end;
 // backend can occasionally drop a request under extreme concurrent-server test
 // load (hundreds of threads across dozens of servers in one process); a real
 // client retries, so the deferred-response assertions do too. Async dispatch is
-// unaffected — this only smooths the SyncDispatch-under-contention edge.
+// unaffected - this only smooths the SyncDispatch-under-contention edge.
 function DGetRetry(APort: Word; const APath: string; out AResp: string;
   ADeadlineMs: Integer = 6000): Integer; forward;
 
@@ -223,9 +221,7 @@ begin
   until TThread.GetTickCount64 >= LDeadline;
 end;
 
-// ---------------------------------------------------------------------------
 // Servers
-// ---------------------------------------------------------------------------
 
 var
   GDeferSrv:     TPoseidonServer;
@@ -261,7 +257,7 @@ begin
       Next();
     end);
 
-  // /async — defer, then complete from a worker thread after a short delay.
+  // /async - defer, then complete from a worker thread after a short delay.
   AServer.Get('/async',
     procedure(var Ctx: TNativeRequestContext)
     var
@@ -276,7 +272,7 @@ begin
         end).Start;
     end);
 
-  // /asyncnow — defer, then complete IMMEDIATELY on the same thread (diagnostic:
+  // /asyncnow - defer, then complete IMMEDIATELY on the same thread (diagnostic:
   // isolates the responder send path from cross-thread completion).
   AServer.Get('/asyncnow',
     procedure(var Ctx: TNativeRequestContext)
@@ -287,7 +283,7 @@ begin
       LResp.RespondText(200, 'application/json', '{"now":true}');
     end);
 
-  // /drop — defer but discard the responder immediately (simulates a handler
+  // /drop - defer but discard the responder immediately (simulates a handler
   // that loses the handle). The framework must force-close the connection.
   AServer.Get('/drop',
     procedure(var Ctx: TNativeRequestContext)
@@ -295,7 +291,7 @@ begin
       Ctx.Defer;  // temporary released at end of statement -> force-close
     end);
 
-  // /sync — a normal (non-deferred) reply, as a control.
+  // /sync - a normal (non-deferred) reply, as a control.
   AServer.Get('/sync',
     procedure(var Ctx: TNativeRequestContext)
     begin

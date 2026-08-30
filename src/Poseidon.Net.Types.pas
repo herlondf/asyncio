@@ -1,4 +1,4 @@
-unit Poseidon.Net.Types;
+﻿unit Poseidon.Net.Types;
 
 // Shared public types for the Poseidon framework.
 // Extracted from Poseidon.Net.HttpServer so that Dispatcher and other units
@@ -16,9 +16,7 @@ uses
   {$ENDIF}
 
 type
-  // --------------------------------------------------------------------------
   // Request / response types
-  // --------------------------------------------------------------------------
 
   TPoseidonNativeRequest = record
     Method: string;
@@ -37,7 +35,7 @@ type
     out ABody: TBytes;
     out AExtraHeaders: TArray<TPair<string,string>>);
 
-  // HTTP/2 server push resource — used with TPoseidonNativeServer.OnH2Push.
+  // HTTP/2 server push resource - used with TPoseidonNativeServer.OnH2Push.
   // The server sends a PUSH_PROMISE + synthetic GET response for each resource.
   TPoseidonPushResource = record
     Path: string;
@@ -52,9 +50,7 @@ type
     const AReq: TPoseidonNativeRequest;
     var APushResources: TArray<TPoseidonPushResource>);
 
-  // --------------------------------------------------------------------------
   // Logging types
-  // --------------------------------------------------------------------------
 
   TLogLevel = (llDebug, llInfo, llWarning, llError);
   TOnPoseidonLog = reference to procedure(ALevel: TLogLevel; const AMessage: string);

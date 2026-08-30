@@ -1,4 +1,4 @@
-unit Poseidon.Middleware.HealthCheck;
+﻿unit Poseidon.Middleware.HealthCheck;
 
 // Health-check endpoints: /health, /health/live, /health/ready
 //
@@ -130,7 +130,7 @@ begin
             except
               on E: Exception do
                 // Do not expose the raw exception (class/message) on an
-                // unauthenticated /health endpoint — it can leak internal
+                // unauthenticated /health endpoint - it can leak internal
                 // details (connection strings, paths).
                 LResult := THealthCheckResult.Failed('check raised an exception');
             end;

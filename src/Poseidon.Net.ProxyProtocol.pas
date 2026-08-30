@@ -1,7 +1,7 @@
-unit Poseidon.Net.ProxyProtocol;
+﻿unit Poseidon.Net.ProxyProtocol;
 
 // Proxy Protocol v1 (text) and v2 (binary) header parsing.
-// No I/O — operates on raw byte buffers already in the connection's AccumBuf.
+// No I/O - operates on raw byte buffers already in the connection's AccumBuf.
 //
 // v2 binary signature (12 bytes):
 //   0D 0A 0D 0A 00 0D 0A 51 55 49 54 0A
@@ -54,14 +54,14 @@ function TryParseProxyProtocolV1(ABuf: PByte; ABufLen: Integer;
 
 // Auto-detect version by signature and delegate.
 // When no known signature is found in the first 6+ bytes and AMode=ppAuto,
-// sets ANoSignature=True — caller treats the connection as non-PP.
+// sets ANoSignature=True - caller treats the connection as non-PP.
 //
 // APeerAddr:       real socket-level peer address (bare "IP" or "IP:port").
 //                  Used to enforce the trusted-proxy allowlist below.
 // ATrustedProxies: list of IPv4 CIDR blocks whose peers are allowed to send
 //                  a Proxy Protocol header. If APeerAddr does NOT match any
 //                  CIDR in this list, the header is NOT parsed and the caller
-//                  MUST fall back to the real socket peer — ANoSignature is
+//                  MUST fall back to the real socket peer - ANoSignature is
 //                  set True so the caller treats it as non-PP.
 //                  Empty (or nil) list = fail-close: Proxy Protocol is never
 //                  accepted (safe default against IP-spoofing).
@@ -176,7 +176,7 @@ begin
     end;
     else
     begin
-      // AF_UNSPEC or AF_UNIX — consume but keep original addr
+      // AF_UNSPEC or AF_UNIX - consume but keep original addr
       AConsumed := LTotal;
       Result := True;
       Exit;
@@ -240,7 +240,7 @@ begin
     Exit;
   end;
 
-  // #M10: require EXACTLY the 6 fields — reject trailing garbage after the port.
+  // #M10: require EXACTLY the 6 fields - reject trailing garbage after the port.
   if Length(LParts) <> 6 then begin AInvalid := True; Exit; end;
   if not (SameText(LParts[1], 'TCP4') or SameText(LParts[1], 'TCP6')) then
   begin
@@ -304,7 +304,7 @@ begin
         end;
     if not LTrusted then
     begin
-      // Peer is not an allowed proxy — do NOT parse the header. Signal the
+      // Peer is not an allowed proxy - do NOT parse the header. Signal the
       // caller to use the real socket peer address instead.
       ANoSignature := True;
       Exit;

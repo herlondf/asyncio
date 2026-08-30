@@ -1,6 +1,6 @@
-unit Poseidon.Native.Router;
+﻿unit Poseidon.Native.Router;
 
-// Native router — hash-map for static routes, linear scan for param routes.
+// Native router - hash-map for static routes, linear scan for param routes.
 //
 // Static routes: O(1) lookup via TDictionary (key = 'GET/ping') → index into
 //   FStaticEntries list. Returns stable pointer via List[I].
@@ -172,7 +172,7 @@ begin
     LSegCount := Length(LSegments);
     for I := 0 to FParamRoutes.Count - 1 do
     begin
-      // Case-sensitive method match — consistent with the static route
+      // Case-sensitive method match - consistent with the static route
       // dictionary key (issue #166).
       if FParamRoutes[I].Method <> AMethod then Continue;
       if FParamRoutes[I].SegmentCount <> LSegCount then Continue;

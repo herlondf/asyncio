@@ -10,7 +10,7 @@
 // Solution:
 //   Poseidon manages all connections via IOCP/epoll (a few kernel file descriptors).
 //   An ELASTIC worker pool handles blocking route handlers (ACBr, DB, etc.).
-//   The pool starts with a small number of threads (same as IO workers, 4–16)
+//   The pool starts with a small number of threads (same as IO workers, 4-16)
 //   and grows up to MaxWorkerCount (default 200) under load, then shrinks back.
 //   Thread count is bounded; startup is always fast regardless of MaxWorkerCount.
 //
@@ -20,7 +20,7 @@
 //
 // Optional tuning (before Listen):
 //   THorse.WorkerCount := 200;   // max request-handler threads (default 200)
-//   THorse.MinWorkerCount := 8;  // min threads kept warm (default: auto 4–16)
+//   THorse.MinWorkerCount := 8;  // min threads kept warm (default: auto 4-16)
 //   THorse.MaxConnections := 0;  // 0 = unlimited at TCP level
 
 interface
@@ -44,8 +44,8 @@ type
   private const
     DEFAULT_HOST            = '0.0.0.0';
     DEFAULT_PORT            = 9000;
-    // 0 = auto (request pool max defaults to 200; min matches IO workers 4–16).
-    // The elastic pool starts at min threads regardless of WorkerCount — startup
+    // 0 = auto (request pool max defaults to 200; min matches IO workers 4-16).
+    // The elastic pool starts at min threads regardless of WorkerCount - startup
     // is fast even when WorkerCount = 200. Set WorkerCount for prod blocking
     // workloads (DB, ACBr); keep 0 or set explicitly via MinWorkerCount to
     // control the startup thread count.
@@ -83,7 +83,7 @@ type
     class property ListenQueue:         Integer read FListenQueue write FListenQueue;
     class property KeepConnectionAlive: Boolean read FKeepAlive   write FKeepAlive;
     // Poseidon-specific: max request-handler threads (elastic pool ceiling).
-    // Pool STARTS at MinWorkerCount and grows here under load — startup is
+    // Pool STARTS at MinWorkerCount and grows here under load - startup is
     // always fast regardless of this value. 0 = auto (default 200).
     class property WorkerCount:    Integer read FWorkerCount    write FWorkerCount;
     // Minimum request-handler threads kept alive at all times (pool floor).
@@ -153,7 +153,7 @@ var
 begin
   LStatus  := 500;
   LCT      := 'application/json';
-  LBody    := nil;   // defer allocation — handler overwrites in 99.9% of cases
+  LBody    := nil;   // defer allocation - handler overwrites in 99.9% of cases
   LEHdrs   := nil;
   LFlushed := False;
 
@@ -180,7 +180,7 @@ begin
       THorseCore.Routes.Execute(LReq, LRes);
     except
       on E: EHorseCallbackInterrupted do
-        ; // Normal: middleware called Interrupt/Next chain ended — response already set
+        ; // Normal: middleware called Interrupt/Next chain ended - response already set
       on E: Exception do
       begin
         LWebRes.StatusCode  := 500;
@@ -212,7 +212,7 @@ begin
   //   - otherwise → plain HTTP
   // When HTTP, put http first so Swagger UI defaults to the correct scheme with
   // no manual configuration. GBSwagger serialises via TJSONValue.Format
-  // (pretty-printed), so the array may span lines — regex handles any whitespace.
+  // (pretty-printed), so the array may span lines - regex handles any whitespace.
   if SameText(AContentType, 'application/json') and
      AReq.Path.EndsWith('swagger/doc/json') then
   begin
@@ -247,12 +247,12 @@ begin
   LServer := GetDefaultServer;
 
   // WorkerCount: elastic pool ceiling (0 = auto → default 200).
-  // The pool STARTS at MinWorkerCount (default: auto 4–16) and grows under load.
+  // The pool STARTS at MinWorkerCount (default: auto 4-16) and grows under load.
   // Startup is always fast regardless of WorkerCount.
   LServer.WorkerCount    := FWorkerCount;
   LServer.MinWorkerCount := FMinWorkerCount;
 
-  // MaxConnections at TCP level — 0 means unlimited (Poseidon backpressure via worker pool)
+  // MaxConnections at TCP level - 0 means unlimited (Poseidon backpressure via worker pool)
   if FMaxConns > 0 then
     LServer.MaxConnections := FMaxConns;
 

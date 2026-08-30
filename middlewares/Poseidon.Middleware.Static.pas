@@ -1,4 +1,4 @@
-unit Poseidon.Middleware.Static;
+﻿unit Poseidon.Middleware.Static;
 
 // Static file serving middleware.
 // Features: ETag, Last-Modified, 304 Not Modified, MIME detection, gzip.
@@ -141,7 +141,7 @@ begin
       LFileBytes, LCompressed: TBytes;
       LUseGzip: Boolean;
     begin
-      // The prefix must end on a path boundary — '/static' must NOT match
+      // The prefix must end on a path boundary - '/static' must NOT match
       // '/staticsecret' (which would serve the static root under an unintended
       // URL). Accept an exact match, a '/'-terminated prefix, or a '/' right
       // after the prefix.

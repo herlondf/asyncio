@@ -1,7 +1,7 @@
-unit Poseidon.Status;
+﻿unit Poseidon.Status;
 
 // HTTP status codes and MIME type constants.
-// Zero external dependencies — no Web.HTTPApp, no WebBroker.
+// Zero external dependencies - no Web.HTTPApp, no WebBroker.
 
 interface
 

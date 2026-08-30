@@ -1,9 +1,9 @@
-unit Poseidon.Text;
+﻿unit Poseidon.Text;
 
 // Fast UTF-16 -> UTF-8 conversion for the response hot path.
 //
 // WHY: TEncoding.UTF8.GetBytes measures 22 MB/s on Linux x86-64 (BDS 22,
-// Ubuntu 24.04) — about 4.4 ms for a 100 KB body. On a response-heavy server
+// Ubuntu 24.04) - about 4.4 ms for a 100 KB body. On a response-heavy server
 // that single call dominates everything else: a 100 KB JSON reply measured
 // 456 req/s through TEncoding versus 9319 req/s when the body was already
 // bytes. A plain scalar loop with an ASCII fast path reaches 191 MB/s, i.e.
@@ -99,7 +99,7 @@ begin
         Inc(I, 2);
         Continue;
       end;
-      // Unpaired high surrogate — substitute, matching TEncoding's behaviour.
+      // Unpaired high surrogate - substitute, matching TEncoding's behaviour.
       LCh := CReplacement;
     end
     else if (LCh >= CLowSurrogateFirst) and (LCh <= CLowSurrogateLast) then
@@ -127,7 +127,7 @@ begin
   // Deliberately sized at the worst case rather than from an exact pre-count.
   // An exact-size pass was tried and measured (see utf8-encode-bench): the gain
   // did not justify the failure mode. If a pre-count ever UNDER-counts by one
-  // byte, _Encode writes past the end of the block — which is precisely the
+  // byte, _Encode writes past the end of the block - which is precisely the
   // heap-corruption class this server is being hardened against. Worst-case
   // sizing cannot overflow by construction; shrinking afterwards does not
   // reallocate, so the only cost is transient address space.

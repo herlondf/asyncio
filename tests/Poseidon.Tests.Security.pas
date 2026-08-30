@@ -1,4 +1,4 @@
-unit Poseidon.Tests.Security;
+﻿unit Poseidon.Tests.Security;
 
 // DUnitX unit tests for Poseidon.Net.Security.pas.
 // All functions are pure (no I/O), so every branch is reachable without a
@@ -98,9 +98,7 @@ uses
   System.SysUtils,
   Poseidon.Net.Security;
 
-// ===========================================================================
 // IsMethodAllowed
-// ===========================================================================
 
 procedure TSecurityIsMethodAllowedTests.EmptyList_AnyMethod_ReturnsTrue;
 begin
@@ -139,9 +137,7 @@ begin
   Assert.IsFalse(IsMethodAllowed('', ['GET', 'POST']));
 end;
 
-// ===========================================================================
 // IsPathSafe
-// ===========================================================================
 
 procedure TSecurityIsPathSafeTests.RootPath_ReturnsTrue;
 begin
@@ -225,14 +221,12 @@ end;
 
 procedure TSecurityIsPathSafeTests.DoubleSlash_StillSafe;
 begin
-  // Double slashes do not contain ".." — should be safe at protocol level
+  // Double slashes do not contain ".." - should be safe at protocol level
   Assert.IsTrue(IsPathSafe('//api/v1/users'));
   Assert.IsTrue(IsPathSafe('/a//b'));
 end;
 
-// ===========================================================================
 // StripCRLF
-// ===========================================================================
 
 procedure TSecurityStripCRLFTests.NoCRLF_Unchanged;
 begin
@@ -283,9 +277,7 @@ begin
   Assert.AreEqual('', StripCRLF(#13#10#0#13#10));
 end;
 
-// ===========================================================================
 // HasRequestSmuggling
-// ===========================================================================
 
 procedure TSecurityHasRequestSmugglingTests.BothPresent_ReturnsTrue;
 begin
@@ -307,9 +299,7 @@ begin
   Assert.IsFalse(HasRequestSmuggling(False, False));
 end;
 
-// ===========================================================================
 // IsIPInCIDR
-// ===========================================================================
 
 procedure TSecurityIsIPInCIDRTests.ExactMatch_Slash32_ReturnsTrue;
 begin
@@ -401,7 +391,7 @@ end;
 procedure TSecurityIsIPInCIDRTests.IPv6RemoteAddr_FailClose;
 begin
   // IPv6 addresses do not produce 4 IPv4 octets, so they fail closed against
-  // an IPv4 CIDR — prevents an IPv6 peer from bypassing an IPv4 allowlist.
+  // an IPv4 CIDR - prevents an IPv6 peer from bypassing an IPv4 allowlist.
   Assert.IsFalse(IsIPInCIDR('[::1]:8080',   '127.0.0.1/8'));
   Assert.IsFalse(IsIPInCIDR('::1',          '127.0.0.1/8'));
   Assert.IsFalse(IsIPInCIDR('2001:db8::1',  '10.0.0.0/8'));

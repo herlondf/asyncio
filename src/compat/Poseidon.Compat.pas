@@ -1,4 +1,4 @@
-unit Poseidon.Compat;
+﻿unit Poseidon.Compat;
 
 // Free Pascal compatibility layer for Poseidon (issue #5).
 //
@@ -37,7 +37,7 @@ type
     function Decode(const AInput: string): string;
   end;
 
-  // Mirrors System.NetEncoding.TBase64Encoding.EncodeBytesToString — used by the
+  // Mirrors System.NetEncoding.TBase64Encoding.EncodeBytesToString - used by the
   // WebSocket handshake (Sec-WebSocket-Accept = base64(SHA1(...))). Standard
   // RFC 4648 base64 with '=' padding.
   TPoseidonBase64Encoding = record
@@ -59,7 +59,7 @@ type
 
   // Delphi's System.SysUtils.TProc (= reference to procedure). Under FPC 3.3.1
   // (-Mfunctionreferences) this maps to a real function reference, so capturing
-  // closures — e.g. the Listen `AOnListen` continuation in Native.Server — work
+  // closures - e.g. the Listen `AOnListen` continuation in Native.Server - work
   // exactly as in Delphi.
   TProc = reference to procedure;
   TProc<T> = reference to procedure(Arg1: T);
@@ -70,7 +70,7 @@ type
   {$SCOPEDENUMS OFF}
 
   // Mirrors the slice of System.SysUtils.TStringHelper that the Poseidon core
-  // uses. Keep additions in lock-step with Delphi semantics — this is a
+  // uses. Keep additions in lock-step with Delphi semantics - this is a
   // compatibility shim, not a place to invent behaviour.
   TPoseidonStringHelper = type helper for string
     // 0-based index of the last character that matches any char in ADelimiters,
@@ -98,7 +98,7 @@ type
   // an RFC 7807 object from a few string/number fields and serialises it via
   // ToString; it never PARSES JSON. This mirrors only that write path
   // (TJSONObject.AddPair + TJSONString/TJSONNumber.Create + ToString) so
-  // Poseidon.Problem compiles unchanged under FPC. Not a general JSON library —
+  // Poseidon.Problem compiles unchanged under FPC. Not a general JSON library -
   // Serialize() is the virtual worker; ToString delegates to it.
   TJSONValue = class
   protected
@@ -143,14 +143,14 @@ type
   // Mirrors the slice of System.Diagnostics.TStopwatch that the HTTP/2 manager
   // uses for rate-limiting windows (RST/PING flood): a monotonic high-resolution
   // tick source and its frequency. Only deltas and Frequency matter, so this
-  // maps to QueryPerformanceCounter/Frequency — same semantics as Delphi's
+  // maps to QueryPerformanceCounter/Frequency - same semantics as Delphi's
   // TStopwatch on Windows.
   TStopwatch = record
     class function GetTimeStamp: Int64; static;
     class function Frequency: Int64; static;
   end;
 
-  // Mirrors System.Hash.THashSHA1.GetHashBytes — used to compute
+  // Mirrors System.Hash.THashSHA1.GetHashBytes - used to compute
   // Sec-WebSocket-Accept = base64(SHA1(key + GUID)). Backed by FPC's sha1 unit.
   THashSHA1 = record
     class function GetHashBytes(const AData: TBytes): TBytes; static; overload;

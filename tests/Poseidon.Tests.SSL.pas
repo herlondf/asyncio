@@ -1,4 +1,4 @@
-unit Poseidon.Tests.SSL;
+﻿unit Poseidon.Tests.SSL;
 
 // DUnitX tests for SSL injection layer (#25).
 //
@@ -14,7 +14,7 @@ unit Poseidon.Tests.SSL;
 //   - Constructor with nil provider falls back to DefaultSSLProvider
 //   - Custom IBufferPool is stored (R-6 DIP)
 //
-// Port: none — these are pure unit tests (no Listen call).
+// Port: none - these are pure unit tests (no Listen call).
 
 interface
 
@@ -189,7 +189,7 @@ begin
   LServer := MakeConfigured(LSpy);
   try
     Assert.IsTrue(LSpy.WasCalled('SetSecurityOptions'),
-      'SetSecurityOptions not called — renegotiation/compression not hardened');
+      'SetSecurityOptions not called - renegotiation/compression not hardened');
   finally
     LServer.Free;
   end;
@@ -388,7 +388,7 @@ var
   LServer: TPoseidonNativeServer;
 begin
   LSpy := TSpySSLProvider.Create;
-  IRef := LSpy;            // interface ref — prevents destruction when server drops it
+  IRef := LSpy;            // interface ref - prevents destruction when server drops it
   LServer := MakeConfigured(LSpy);
   LSpy.ClearLog;
   LServer.Free;

@@ -1,14 +1,14 @@
-unit Poseidon.Tests.HTTP1Parser;
+﻿unit Poseidon.Tests.HTTP1Parser;
 
 // DUnitX unit tests for Poseidon.Net.HTTP1.Parser.
 //
-// All tests operate on raw TBytes buffers — no network, no server.
+// All tests operate on raw TBytes buffers - no network, no server.
 //
 // Coverage:
-//   ParseHTTP1Request — complete request, incomplete, bad request, chunked body,
+//   ParseHTTP1Request - complete request, incomplete, bad request, chunked body,
 //                       query string, HTTP/1.0 vs 1.1, custom headers,
 //                       request-smuggling rejection (S-4), header max size.
-//   DecodeHTTP1Chunked — single chunk, multiple chunks, last chunk,
+//   DecodeHTTP1Chunked - single chunk, multiple chunks, last chunk,
 //                        incomplete, malformed hex, oversized chunk.
 
 interface
@@ -68,9 +68,7 @@ uses
   System.Generics.Collections,
   Poseidon.Net.HTTP1.Parser;
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 procedure CheckInt(AExpected, AActual: Integer; const AMsg: string = '');
 begin
@@ -82,9 +80,7 @@ begin
   Result := TEncoding.ASCII.GetBytes(AText);
 end;
 
-// ---------------------------------------------------------------------------
 // ParseHTTP1Request tests
-// ---------------------------------------------------------------------------
 
 procedure THTTP1ParseRequestTests.Get_Root_ParsesCorrectly;
 var
@@ -229,7 +225,7 @@ var
   LConsumed: Integer;
   LBad:      Boolean;
 begin
-  // Headers not yet terminated — wait for more data
+  // Headers not yet terminated - wait for more data
   LBuf := MakeReq('GET / HTTP/1.1'#13#10'Host: x'#13#10);
   Assert.IsFalse(ParseHTTP1Request(LBuf, Length(LBuf), 65536, 8388608,
     LMethod, LPath, LQS, LHeaders, LBody, LKeep, LConsumed, LBad));
@@ -392,7 +388,7 @@ begin
 end;
 
 procedure THTTP1ParseRequestTests.PipelinedRequests_OnlyFirstConsumed;
-// Two back-to-back requests in the buffer — parser must only parse one.
+// Two back-to-back requests in the buffer - parser must only parse one.
 var
   LBuf:      TBytes;
   LMethod, LPath, LQS: string;
@@ -414,9 +410,7 @@ begin
   CheckInt(Length(MakeReq(LReq1)), LConsumed);
 end;
 
-// ---------------------------------------------------------------------------
 // Fase 4: ParseHTTP1Request edge cases
-// ---------------------------------------------------------------------------
 
 procedure THTTP1ParseRequestTests.HeaderSize_ExactlyAtLimit_Accepted;
 // Headers that fit exactly within the max header size must be accepted.
@@ -442,7 +436,7 @@ begin
 end;
 
 procedure THTTP1ParseRequestTests.EmptyBody_POST_ContentLength0;
-// POST with Content-Length: 0 is valid — body should be empty, not incomplete.
+// POST with Content-Length: 0 is valid - body should be empty, not incomplete.
 var
   LBuf:      TBytes;
   LMethod, LPath, LQS: string;
@@ -501,9 +495,7 @@ begin
   Assert.IsFalse(LKeep, 'HTTP/1.0 without Connection header must default to close');
 end;
 
-// ---------------------------------------------------------------------------
 // DecodeHTTP1Chunked tests
-// ---------------------------------------------------------------------------
 
 procedure TDecodeHTTP1ChunkedTests.SingleChunk_DecodesCorrectly;
 var
@@ -613,7 +605,7 @@ var
   LConsumed: Integer;
   LMal:    Boolean;
 begin
-  // "5;ext=value\r\nhello\r\n0\r\n\r\n" — extension after semicolon is ignored
+  // "5;ext=value\r\nhello\r\n0\r\n\r\n" - extension after semicolon is ignored
   LRaw := TEncoding.ASCII.GetBytes('5;ext=value'#13#10'hello'#13#10'0'#13#10#13#10);
   Assert.IsTrue(DecodeHTTP1Chunked(@LRaw[0], Length(LRaw), 8388608,
     LBody, LConsumed, LMal));

@@ -1,4 +1,4 @@
-unit Poseidon.Net.Pool.Socket;
+﻿unit Poseidon.Net.Pool.Socket;
 
 // Socket recycling pool using DisconnectEx + TF_REUSE_SOCKET.
 //
@@ -16,7 +16,7 @@ unit Poseidon.Net.Pool.Socket;
 // handed that socket back out, RegisterConn's tolerance of
 // ERROR_INVALID_PARAMETER (see #203) would silently accept it as "already
 // associated with the port we need" when it was actually still bound to a
-// different (possibly already-closed) instance's port — completions for
+// different (possibly already-closed) instance's port - completions for
 // that connection then never reach the new instance's IOCP.
 //
 // Windows only. On Linux, this unit compiles as an empty stub.
@@ -134,7 +134,7 @@ begin
   // Synchronous DisconnectEx with TF_REUSE_SOCKET
   if not TDisconnectExFunc(FDisconnectEx)(ASocket, nil, TF_REUSE_SOCKET, 0) then
   begin
-    // DisconnectEx failed — close normally
+    // DisconnectEx failed - close normally
     closesocket(ASocket);
     Exit;
   end;
@@ -148,7 +148,7 @@ begin
       Result := True;
     end
     else
-      closesocket(ASocket); // Pool full — close normally
+      closesocket(ASocket); // Pool full - close normally
   finally
     {$IFDEF FPC}FLock.Leave;{$ELSE}TMonitor.Exit(FLock);{$ENDIF}
   end;

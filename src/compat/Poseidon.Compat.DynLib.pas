@@ -1,10 +1,10 @@
-unit Poseidon.Compat.DynLib;
+﻿unit Poseidon.Compat.DynLib;
 
 // Free Pascal dynamic-library loading for Poseidon.Net.SSL (issue #5).
 //
 // Poseidon.Net.SSL loads libssl/libcrypto at runtime via LoadLibrary /
 // GetProcAddress / FreeLibrary (Windows) or dlopen/dlsym/dlclose (POSIX). On
-// FPC/Win64 those three Windows entry points live in the `Windows` unit — but
+// FPC/Win64 those three Windows entry points live in the `Windows` unit - but
 // pulling `Windows` into Poseidon.Net.SSL's scope SHADOWS syncobjs.TCriticalSection
 // with the Win32 CRITICAL_SECTION record (Pascal is case-insensitive), breaking
 // `TCriticalSection.Create`. `uses` is NOT transitive, so this unit re-exports
@@ -31,7 +31,7 @@ function FreeLibrary(ALib: NativeUInt): Boolean;
 
 // POSIX: the SSL unit's Linux branch calls dlopen/dlsym/dlclose with the Delphi
 // Posix.Dlfcn shapes (MarshaledAString args, RTLD_* flags). FPC has no Posix.*
-// units — this mirrors that slice over FPC's `dl` unit so the SSL body compiles
+// units - this mirrors that slice over FPC's `dl` unit so the SSL body compiles
 // unchanged. Handles are NativeUInt (TPoseidonLibHandle).
 type
   MarshaledAString = PAnsiChar;

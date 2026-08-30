@@ -1,8 +1,8 @@
-unit Poseidon.Tests.IdleSweep;
+﻿unit Poseidon.Tests.IdleSweep;
 
 // DUnitX tests for TIdleSweepManager's #233 handler-stuck watchdog
 // (MaxHandlerRunMs). Exercises the sweep thread directly against a real
-// TNativeConn/TConnectionManager pair — no sockets involved, since the
+// TNativeConn/TConnectionManager pair - no sockets involved, since the
 // watchdog only needs InFlightPool > 0 and a stale LastActivityTick.
 //
 // Coverage:
@@ -30,13 +30,16 @@ type
   // _CompactAccum only ever resets AccumLen, never the buffer's capacity --
   // the sweep now shrinks an idle, fully-drained oversized buffer back to
   // tier 0. Coverage: it does; it does not touch a busy connection
-  // (InFlightPool > 0); it does not touch one with pending unconsumed bytes.
+  // (InFlightPool > 0); it does not touch one with pending unconsumed bytes;
+  // it does not touch one with ShrinkAccumBufEnabled = False (#234 kill
+  // switch - see Poseidon.Net.IdleSweep.pas).
   [TestFixture]
   TIdleSweepAccumBufShrinkTests = class
   public
     [Test] procedure IdleOversizedBuffer_ShrinksToTier0;
     [Test] procedure BusyConnection_BufferNotShrunk;
     [Test] procedure PendingBytes_BufferNotShrunk;
+    [Test] procedure Disabled_IdleOversizedBuffer_NotShrunk;
   end;
   {$M-}
 
@@ -54,12 +57,12 @@ uses
 const
   // The sweep's own internal tick (CSweepIntervalMs in IdleSweep.pas) is
   // 1000ms and not configurable, so any test observing a sweep pass needs
-  // to poll past that — this is inherent to the mechanism, not a fixed
+  // to poll past that - this is inherent to the mechanism, not a fixed
   // Sleep standing in for a missing readiness signal.
   CPollTimeoutMs = 3000;
   CPollStepMs = 50;
 
-// Polls AFlag with a timeout instead of a single fixed Sleep — still bounded
+// Polls AFlag with a timeout instead of a single fixed Sleep - still bounded
 // by CPollTimeoutMs so a genuine regression fails the test instead of hanging.
 function WaitFor(AFlag: PBoolean; ATimeoutMs: Integer): Boolean;
 var
@@ -96,7 +99,7 @@ begin
     LSweep := TIdleSweepManager.Create(LConnMgr, nil, @LActive);
     try
       LSweep.IdleTimeoutMs := 0;
-      LSweep.MaxHandlerRunMs := 0;  // disabled — default
+      LSweep.MaxHandlerRunMs := 0;  // disabled - default
       LSweep.OnForceClose :=
         procedure(AConn: Pointer)
         begin
@@ -112,7 +115,7 @@ begin
       // TIdleSweepManager.Stop() only sets a wake event; the sweep thread's
       // own loop condition is `while FActive^`, checked against the SAME
       // PBoolean the constructor received. The caller (here, the test) owns
-      // flipping it to False before Stop — never done, the sweep thread
+      // flipping it to False before Stop - never done, the sweep thread
       // spins forever re-triggering an already-set (manual-reset) wake
       // event and Stop's FSweepThread.WaitFor never returns.
       LActive := False;
@@ -151,7 +154,7 @@ begin
     LSweep := TIdleSweepManager.Create(LConnMgr, nil, @LActive);
     try
       LSweep.IdleTimeoutMs := 0;      // isolate: idle-close path must not interfere
-      LSweep.MaxHandlerRunMs := 100;  // 100ms — well under our simulated 500ms
+      LSweep.MaxHandlerRunMs := 100;  // 100ms - well under our simulated 500ms
       LSweep.OnForceClose :=
         procedure(AConn: Pointer)
         begin
@@ -166,9 +169,9 @@ begin
         'OnForceClose must be called with the stuck connection');
 
       // The connection is still "in flight" from the worker's point of view
-      // (InFlightPool never touched by the watchdog — it does not free the
+      // (InFlightPool never touched by the watchdog - it does not free the
       // object or kill any thread), so OnForceClose keeps firing every tick
-      // it stays stuck. That is expected — _CloseConn (the real callback in
+      // it stays stuck. That is expected - _CloseConn (the real callback in
       // production) is idempotent. Just prove it never crashes across a
       // couple more ticks and the connection identity never changes.
       Sleep(2200);
@@ -177,7 +180,7 @@ begin
       // TIdleSweepManager.Stop() only sets a wake event; the sweep thread's
       // own loop condition is `while FActive^`, checked against the SAME
       // PBoolean the constructor received. The caller (here, the test) owns
-      // flipping it to False before Stop — never done, the sweep thread
+      // flipping it to False before Stop - never done, the sweep thread
       // spins forever re-triggering an already-set (manual-reset) wake
       // event and Stop's FSweepThread.WaitFor never returns.
       LActive := False;
@@ -211,7 +214,7 @@ begin
     LSweep := TIdleSweepManager.Create(LConnMgr, nil, @LActive);
     try
       LSweep.IdleTimeoutMs := 0;
-      LSweep.MaxHandlerRunMs := 60000;  // 60s — the handler will not run that long in this test
+      LSweep.MaxHandlerRunMs := 60000;  // 60s - the handler will not run that long in this test
       LSweep.OnForceClose :=
         procedure(AConn: Pointer)
         begin
@@ -225,7 +228,7 @@ begin
       // TIdleSweepManager.Stop() only sets a wake event; the sweep thread's
       // own loop condition is `while FActive^`, checked against the SAME
       // PBoolean the constructor received. The caller (here, the test) owns
-      // flipping it to False before Stop — never done, the sweep thread
+      // flipping it to False before Stop - never done, the sweep thread
       // spins forever re-triggering an already-set (manual-reset) wake
       // event and Stop's FSweepThread.WaitFor never returns.
       LActive := False;
@@ -348,6 +351,45 @@ begin
       Sleep(CPollTimeoutMs);
       Assert.IsTrue(Length(LConn.AccumBuf) >= POOL_TIER1_SIZE,
         'a buffer with unconsumed pending bytes must not be shrunk');
+    finally
+      LActive := False;
+      LSweep.Stop;
+      FreeAndNil(LSweep);
+    end;
+  finally
+    LConnMgr.Remove(LConn);
+    LConn.Release;
+    FreeAndNil(LConnMgr);
+  end;
+end;
+
+procedure TIdleSweepAccumBufShrinkTests.Disabled_IdleOversizedBuffer_NotShrunk;
+var
+  LActive: Boolean;
+  LConnMgr: TConnectionManager;
+  LSweep: TIdleSweepManager;
+  LConn: TNativeConn;
+begin
+  LActive := True;
+  LConnMgr := TConnectionManager.Create;
+  LConn := TNativeConn.Create(0, '127.0.0.1:7');
+  try
+    LConnMgr.Admit(LConn);
+    TBufferPool.Release(LConn.AccumBuf);
+    LConn.AccumBuf := TBufferPool.Acquire(POOL_TIER1_SIZE);  // simulate a past large request
+    LConn.AccumLen := 0;                                     // fully drained
+    LConn.InFlightPool := 0;                                 // idle, no active dispatch
+    LConn.LastActivityTick := TThread.GetTickCount64;
+
+    LSweep := TIdleSweepManager.Create(LConnMgr, nil, @LActive);
+    try
+      LSweep.IdleTimeoutMs := 60000;  // non-zero -- see comment in the first test
+      LSweep.MaxHandlerRunMs := 0;
+      LSweep.ShrinkAccumBufEnabled := False;  // #234 kill switch
+      LSweep.Start;
+      Sleep(CPollTimeoutMs);
+      Assert.IsTrue(Length(LConn.AccumBuf) >= POOL_TIER1_SIZE,
+        'ShrinkAccumBufEnabled = False must leave an oversized AccumBuf untouched');
     finally
       LActive := False;
       LSweep.Stop;

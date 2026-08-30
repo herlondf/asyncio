@@ -1,4 +1,4 @@
-unit Poseidon.Middleware.RequestID;
+﻿unit Poseidon.Middleware.RequestID;
 
 interface
 
@@ -25,7 +25,7 @@ begin
 end;
 
 // #M21: a client-supplied X-Request-ID is echoed into the response header and
-// into logs. Accept it only if it is short and made of safe visible ASCII —
+// into logs. Accept it only if it is short and made of safe visible ASCII -
 // otherwise a CR/LF would enable header injection / log forging.
 function IsSafeRequestID(const AID: string): Boolean;
 var

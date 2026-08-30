@@ -1,17 +1,17 @@
-unit Poseidon.Tests.HPACK;
+﻿unit Poseidon.Tests.HPACK;
 
 // DUnitX unit tests for Poseidon.Net.HTTP2.HPACK (TH2HpackCodec).
 //
-// All tests are pure-unit — no network, no server, no SSL.
+// All tests are pure-unit - no network, no server, no SSL.
 // Each fixture covers one functional area:
 //
-//   THPackDecodeTests      — DecodeHeaders: all 4 header representations + table update
-//   THPackHuffmanTests     — Huffman-encoded string literals (RFC 7541 Appendix C.4)
-//   THPackRFC7541VectorTests — Official RFC 7541 Appendix C.3 byte-exact test vectors
-//   THPackEncodeResponseTests — EncodeResponseHeaders correctness
-//   THPackEncodeRequestTests  — EncodeRequestHeaders correctness
-//   THPackRoundTripTests   — Encode → Decode idempotency
-//   THPackDynTableTests    — Dynamic table management and eviction
+//   THPackDecodeTests      - DecodeHeaders: all 4 header representations + table update
+//   THPackHuffmanTests     - Huffman-encoded string literals (RFC 7541 Appendix C.4)
+//   THPackRFC7541VectorTests - Official RFC 7541 Appendix C.3 byte-exact test vectors
+//   THPackEncodeResponseTests - EncodeResponseHeaders correctness
+//   THPackEncodeRequestTests  - EncodeRequestHeaders correctness
+//   THPackRoundTripTests   - Encode → Decode idempotency
+//   THPackDynTableTests    - Dynamic table management and eviction
 
 interface
 
@@ -21,7 +21,7 @@ uses
 type
   {$M+}
 
-  // ── Fixture 1: DecodeHeaders — representations ─────────────────────────────
+  // ── Fixture 1: DecodeHeaders - representations ─────────────────────────────
   [TestFixture]
   THPackDecodeTests = class
   public
@@ -39,7 +39,7 @@ type
     [Test] procedure CustomHeader_AppearsInHeadersArray;
     // Regression: a header value carrying non-UTF-8 octets ($FF) must decode
     // without raising (TEncoding.UTF8.GetString raises EEncodingError in this
-    // RTL — a remotely-triggerable HPACK DoS). Octets map 1:1 (ISO-8859-1).
+    // RTL - a remotely-triggerable HPACK DoS). Octets map 1:1 (ISO-8859-1).
     [Test] procedure NonUTF8HeaderValue_DecodesAsLatin1_NoRaise;
   end;
 
@@ -56,7 +56,7 @@ type
   [TestFixture]
   THPackRFC7541VectorTests = class
   public
-    // Stateful sequence — all three requests use the SAME codec instance
+    // Stateful sequence - all three requests use the SAME codec instance
     // (state flows between tests via the fixture's codec object).
     [SetupFixture]
     procedure SetupFixture;
@@ -133,9 +133,7 @@ uses
   System.Generics.Collections,
   Poseidon.Net.HTTP2.HPACK;
 
-// ===========================================================================
 // Helpers
-// ===========================================================================
 
 function BytesToHex(const B: TBytes): string;
 var
@@ -189,9 +187,7 @@ begin
     end;
 end;
 
-// ===========================================================================
-// Fixture 1 — DecodeHeaders representations
-// ===========================================================================
+// Fixture 1 - DecodeHeaders representations
 
 procedure THPackDecodeTests.IndexedStatic_GetMethod_DecodesMethod;
 var
@@ -287,7 +283,7 @@ begin
     Assert.IsTrue(Decode(LCodec, LBlock1, LMethod, LPath, LScheme, LAuth, LHeaders, LGA));
     Assert.AreEqual('foo', LAuth);
 
-    // $BE would be idx=62 → dynamic table — must be empty (no entry was added)
+    // $BE would be idx=62 → dynamic table - must be empty (no entry was added)
     // After decode of empty dynamic table idx=62 reference, function should either
     // skip it (unknown) or fail gracefully. Check: authority should not be 'foo'.
     LBlock2 := Bytes([$BE]);
@@ -357,7 +353,7 @@ begin
   try
     // §6.3: $3F = 0b00111111 = size-update with 5-bit prefix saturated (31),
     // then multi-byte continuation: $E1 $FF $FF $07 encodes 31 + 0x1FFFFE0 = 33554463.
-    // RFC 7541 §6.3 — a size update above the announced maximum
+    // RFC 7541 §6.3 - a size update above the announced maximum
     // (CServerMaxDynTableSize = 4096) is a decoding error: decode returns False
     // and GOAWAY (COMPRESSION_ERROR) is invoked. h2spec enforces this.
     LBlock := Bytes([$3F, $E1, $FF, $FF, $07]);
@@ -491,9 +487,7 @@ begin
   end;
 end;
 
-// ===========================================================================
-// Fixture 2 — Huffman decode
-// ===========================================================================
+// Fixture 2 - Huffman decode
 
 procedure THPackHuffmanTests.HuffmanEncoded_Authority_DecodesCorrectly;
 var
@@ -582,9 +576,7 @@ begin
   end;
 end;
 
-// ===========================================================================
-// Fixture 3 — RFC 7541 Appendix C.3 official byte vectors
-// ===========================================================================
+// Fixture 3 - RFC 7541 Appendix C.3 official byte vectors
 
 var
   GC3Codec: TH2HpackCodec;  // shared across the three C.3 tests
@@ -604,7 +596,7 @@ var
   LMethod, LPath, LScheme, LAuth: string;
   LHeaders: TArray<TPair<string, string>>;
   LGA: Boolean;
-  // RFC 7541 §C.3.1 — no Huffman
+  // RFC 7541 §C.3.1 - no Huffman
   // 82 86 84 41 0f 77 77 77 2e 65 78 61 6d 70 6c 65 2e 63 6f 6d
   LBlock: TBytes;
 begin
@@ -674,9 +666,7 @@ begin
   Assert.AreEqual('custom-value',    LHeaders[0].Value);
 end;
 
-// ===========================================================================
-// Fixture 4 — EncodeResponseHeaders
-// ===========================================================================
+// Fixture 4 - EncodeResponseHeaders
 
 procedure THPackEncodeResponseTests.Status200_FirstByteIsIndexedByte88;
 var
@@ -827,9 +817,7 @@ begin
   end;
 end;
 
-// ===========================================================================
-// Fixture 5 — EncodeRequestHeaders
-// ===========================================================================
+// Fixture 5 - EncodeRequestHeaders
 
 procedure THPackEncodeRequestTests.GetMethod_FirstByteIs82;
 var
@@ -965,9 +953,7 @@ begin
   end;
 end;
 
-// ===========================================================================
-// Fixture 6 — Encode → Decode round-trips
-// ===========================================================================
+// Fixture 6 - Encode → Decode round-trips
 
 // Helper: decode an encoded response block, return ":status" header value
 function DecodeResponseStatus(ACodec: TH2HpackCodec; const ABlock: TBytes): string;
@@ -1152,9 +1138,7 @@ begin
   end;
 end;
 
-// ===========================================================================
-// Fixture 7 — Dynamic table management
-// ===========================================================================
+// Fixture 7 - Dynamic table management
 
 // Builds a literal+incremental-indexing block for name (static idx) + value
 function LiteralIncr(AStaticIdx: Byte; const AValue: string): TBytes;
@@ -1248,7 +1232,7 @@ begin
     Decode(LCodec, Bytes([$BE]), LMethod, LPath, LScheme, LAuth, LHeaders, LGA);
     Assert.AreEqual('bbbbbbbbbbbbbbbbbb', LAuth, 'newest entry at idx=62 after eviction');
 
-    // idx=63 should be gone (evicted) — dynamic lookup fails, returns empty or skips
+    // idx=63 should be gone (evicted) - dynamic lookup fails, returns empty or skips
     LAuth := '';
     Decode(LCodec, Bytes([$BF]), LMethod, LPath, LScheme, LAuth, LHeaders, LGA);
     Assert.AreNotEqual('a', LAuth, 'oldest entry must be evicted when size exceeded');

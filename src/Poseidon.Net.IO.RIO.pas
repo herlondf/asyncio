@@ -1,19 +1,19 @@
-unit Poseidon.Net.IO.RIO;
+﻿unit Poseidon.Net.IO.RIO;
 
-// TRIOBackend — Windows Registered I/O backend.
+// TRIOBackend - Windows Registered I/O backend.
 //
 // RIO (Windows 8+) uses shared-memory completion queues. In polled mode,
-// dequeue completions with ZERO syscalls — similar to io_uring SQPOLL.
+// dequeue completions with ZERO syscalls - similar to io_uring SQPOLL.
 //
 // Architecture:
 //   - Pre-register recv buffers once (CRecvPoolSize × 32KB)
 //   - Per-socket RIOCreateRequestQueue bound to a per-worker CQ
 //   - RIOReceive / RIOSend with registered buffer slices
-//   - RIODequeueCompletion — zero-syscall poll loop per worker
+//   - RIODequeueCompletion - zero-syscall poll loop per worker
 //
 // Loaded via WSAIoctl(SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER).
 //
-// Completion/request queues are NOT thread-safe — per-worker CQs match
+// Completion/request queues are NOT thread-safe - per-worker CQs match
 // the per-core architecture. Each connection is pinned to one CQ via
 // round-robin assignment at RegisterConn time.
 //
@@ -163,12 +163,12 @@ const
   CRecvPoolSize = 512;
   // +1 slot de headroom: RIOReceive rejeita com WSAEINVAL quando Offset+Length
   // == buffer size (offset+length deve ser ESTRITAMENTE menor). Nunca usamos
-  // este slot extra — apenas garante que o último slot válido (índice N-1)
+  // este slot extra - apenas garante que o último slot válido (índice N-1)
   // caiba dentro do buffer registrado com folga.
   CRecvPoolBytes = (CRecvPoolSize + 1) * CRecvBufSize;
   CSendBufSize = 32768;
   CSendPoolSize = 512;
-  // Mesmo headroom do recv pool — evita WSAEINVAL em RIOSend com o último slot.
+  // Mesmo headroom do recv pool - evita WSAEINVAL em RIOSend com o último slot.
   CSendPoolBytes = (CSendPoolSize + 1) * CSendBufSize;
   CRIOCQSize = 4096;
   CRIORQRecv = 32;
@@ -198,7 +198,7 @@ type
     ArraySize: DWORD): ULONG; stdcall;
   TFnNotify = function(CQ: TRIO_CQ): BOOL; stdcall;
 
-  // Send context — heap-allocated, holds buffer reference until completion
+  // Send context - heap-allocated, holds buffer reference until completion
   PRIOSendCtx = ^TRIOSendCtx;
   TRIOSendCtx = record
     Conn: TNativeConn;
@@ -239,9 +239,6 @@ function _WsaListen(s: TSocket; backlog: Integer): Integer; stdcall;
 function _WsaAccept(s: TSocket; addr: PSockAddrIn; addrlen: PInteger): TSocket; stdcall;
   external 'ws2_32.dll' name 'accept';
 
-// ---------------------------------------------------------------------------
-// Constructor / Destructor
-// ---------------------------------------------------------------------------
 
 constructor TRIOBackend.Create;
 var
@@ -300,7 +297,7 @@ var
 begin
   // #P1: if StartListening threw mid-setup, StopAccept/JoinWorkers were never
   // called and the listen socket / CQs / worker IOCPs / overlappeds / CQ locks
-  // leak. Clean them idempotently here — after a normal Stop the arrays are
+  // leak. Clean them idempotently here - after a normal Stop the arrays are
   // already empty and FListenSocket is INVALID_SOCKET, so this is a no-op.
   if FListenSocket <> INVALID_SOCKET then
   begin
@@ -372,9 +369,6 @@ begin
   closesocket(LSocket);
 end;
 
-// ---------------------------------------------------------------------------
-// Recv pool
-// ---------------------------------------------------------------------------
 
 function TRIOBackend._RecvPoolAcquire: Integer;
 begin
@@ -408,9 +402,6 @@ begin
   Result := PByte(FRecvPool) + NativeUInt(AIdx) * CRecvBufSize;
 end;
 
-// ---------------------------------------------------------------------------
-// Send pool
-// ---------------------------------------------------------------------------
 
 function TRIOBackend._SendPoolAcquire: Integer;
 begin
@@ -445,15 +436,12 @@ begin
 end;
 
 function TRIOBackend._MakeWorkerThread(ACQIdx: Integer): TThread;
-// ACQIdx é parâmetro (capturado por valor pela closure) — evita o bug clássico
+// ACQIdx é parâmetro (capturado por valor pela closure) - evita o bug clássico
 // de captura por referência quando a variável do loop é usada diretamente.
 begin
   Result := TThread.CreateAnonymousThread(procedure begin _WorkerLoop(ACQIdx); end);
 end;
 
-// ---------------------------------------------------------------------------
-// IIOBackend — lifecycle
-// ---------------------------------------------------------------------------
 
 procedure TRIOBackend.StartListening(const AHost: string; APort: Integer;
   AWorkerCount: Integer; AFastOpen: Boolean; ACallbacks: IIOCallbacks;
@@ -523,7 +511,7 @@ begin
   begin
     // Fix: captura por VALOR via parâmetro de função. Assignment em variável
     // local (LIdx := I) seria capturada por REFERÊNCIA pela anonymous method
-    // — todas as N threads leriam o mesmo LIdx (última iteração), colapsando
+    // - todas as N threads leriam o mesmo LIdx (última iteração), colapsando
     // o polling em uma única CQ e vazando completions das demais.
     FWorkers[I] := _MakeWorkerThread(I);
     FWorkers[I].FreeOnTerminate := False;
@@ -537,7 +525,7 @@ end;
 
 procedure TRIOBackend.SetInlineDispatch(AEnabled: Boolean);
 begin
-  // No submission batching in the RIO backend — no-op.
+  // No submission batching in the RIO backend - no-op.
 end;
 
 procedure TRIOBackend.StopAccept;
@@ -605,9 +593,6 @@ begin
   WSACleanup;
 end;
 
-// ---------------------------------------------------------------------------
-// IIOBackend — per-connection
-// ---------------------------------------------------------------------------
 
 procedure TRIOBackend.RegisterConn(AConn: Pointer);
 var
@@ -775,7 +760,7 @@ begin
     Exit;
   end;
 
-  // Single buffer — delegate to PostSend
+  // Single buffer - delegate to PostSend
   if LHLen = 0 then
   begin
     PostSend(AConn, ABody, LBLen);
@@ -787,7 +772,7 @@ begin
     Exit;
   end;
 
-  // Both parts present — try two-slot approach with RIO_MSG_DEFER
+  // Both parts present - try two-slot approach with RIO_MSG_DEFER
   LSlotH := -1;
   LSlotB := -1;
   if LHLen <= CSendBufSize then
@@ -808,7 +793,7 @@ begin
     Exit;
   end;
 
-  // Two-send with RIO_MSG_DEFER — avoids concatenation memcpy
+  // Two-send with RIO_MSG_DEFER - avoids concatenation memcpy
   New(LSendCtx);
   LSendCtx^.Conn := LConn;
   LSendCtx^.SendBuf := AHeaders;
@@ -852,7 +837,7 @@ begin
   if not TFnSend(FRio.RIOSend)(LConn.RioRQ, @LBufB, 1, 0,
     Pointer(LReqCtx)) then
   begin
-    // First deferred send already accepted by kernel — SlotH cannot be freed
+    // First deferred send already accepted by kernel - SlotH cannot be freed
     // here. Mark Remaining=1 so the CQ completion for the first send will
     // clean up SlotH, HeaderBuf and Dispose the context.
     LSendCtx^.Remaining := 1;
@@ -880,9 +865,6 @@ begin
     closesocket(LSock);
 end;
 
-// ---------------------------------------------------------------------------
-// Accept thread
-// ---------------------------------------------------------------------------
 
 procedure TRIOBackend._Accept;
 var
@@ -916,9 +898,7 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
-// Worker loop — zero-syscall poll
-// ---------------------------------------------------------------------------
+// Worker loop - zero-syscall poll
 
 procedure TRIOBackend._WorkerLoop(ACQIdx: Integer);
 var
@@ -944,7 +924,7 @@ begin
 
     if TInterlocked.Read(FShutdown) <> 0 then Break;
 
-    // Burst dequeue — drain all available completions
+    // Burst dequeue - drain all available completions
     while True do
     begin
       LCount := TFnDequeue(FRio.RIODequeueCompletion)(
@@ -996,12 +976,12 @@ begin
 
             if LSendCtx^.Remaining > 0 then
             begin
-              // More completions expected — just release conn ref
+              // More completions expected - just release conn ref
               LConn.Release;
             end
             else
             begin
-              // Last completion — full cleanup
+              // Last completion - full cleanup
               if LSendCtx^.SlotIdx >= 0 then
                 _SendPoolRelease(LSendCtx^.SlotIdx);
               if LSendCtx^.SlotIdx2 >= 0 then

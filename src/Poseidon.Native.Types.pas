@@ -1,6 +1,6 @@
-unit Poseidon.Native.Types;
+﻿unit Poseidon.Native.Types;
 
-// Native API types — zero-copy request context and handler signatures.
+// Native API types - zero-copy request context and handler signatures.
 //
 // TNativeRequestContext is stack-allocated by the dispatch pipeline.
 // Fields reference the parsed TPoseidonNativeRequest without copying.
@@ -20,13 +20,11 @@ uses
   {$ENDIF}
 
 type
-  // --------------------------------------------------------------------------
   // Deferred (asynchronous) responses
-  // --------------------------------------------------------------------------
   //
   // A handler that must wait on slow work (async DB acquire, upstream call)
   // calls Ctx.Defer to take ownership of the response. The dispatch pipeline
-  // then returns WITHOUT sending — freeing the IO/worker thread — while the
+  // then returns WITHOUT sending - freeing the IO/worker thread - while the
   // connection is kept alive underneath. When the work finishes, the handler
   // (on ANY thread) calls Respond/RespondText on the returned responder to send
   // the reply and re-arm the connection.
@@ -75,7 +73,7 @@ type
     Body: TBytes;
     ExtraHeaders: TArray<TPair<string,string>>;
     Handled: Boolean;
-    // Set by Defer — tells the pipeline to skip the synchronous send.
+    // Set by Defer - tells the pipeline to skip the synchronous send.
     Deferred: Boolean;
 
     // Convenience: get param by name
@@ -151,7 +149,7 @@ begin
     raise Exception.Create('Poseidon: Ctx.Defer called more than once for the same request.');
   if not Assigned(GPoseidonDeferHook) then
     raise Exception.Create(
-      'Poseidon: deferred responses are unavailable — no active native server, ' +
+      'Poseidon: deferred responses are unavailable - no active native server, ' +
       'or this is an HTTP/2 request (not yet supported).');
   // Capture headers already set on the context (e.g. by CORS middleware) so the
   // eventual async reply carries them too.

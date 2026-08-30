@@ -1,4 +1,4 @@
-unit Poseidon.Middleware.OpenAPI;
+﻿unit Poseidon.Middleware.OpenAPI;
 
 // Serves an OpenAPI 3.x spec + Swagger UI.
 //
@@ -228,7 +228,7 @@ begin
   Result :=
     '<!DOCTYPE html>' + sLineBreak +
     '<html lang="en"><head><meta charset="UTF-8"/>' + sLineBreak +
-    '<title>Poseidon — API Docs</title>' + sLineBreak +
+    '<title>Poseidon - API Docs</title>' + sLineBreak +
     '<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"/>' + sLineBreak +
     '</head><body><div id="swagger-ui"></div>' + sLineBreak +
     '<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>' + sLineBreak +

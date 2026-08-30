@@ -1,4 +1,4 @@
-unit Poseidon.Middleware.Digest;
+﻿unit Poseidon.Middleware.Digest;
 
 // HTTP Digest Authentication (MD5, qop=auth).
 //
@@ -71,7 +71,7 @@ begin
   Result := LowerCase(LMD5.HashAsString);
 end;
 
-// Constant-time comparison — never short-circuits on the first differing byte,
+// Constant-time comparison - never short-circuits on the first differing byte,
 // so response timing cannot leak the expected MD5 hash byte-by-byte.
 function ConstantTimeEquals(const A, B: string): Boolean;
 var
@@ -183,7 +183,7 @@ begin
     Purge(Now);
     if not FNonces.TryGetValue(ANonce, LState) then
       Exit;  // unknown / expired / never issued -> reject (replay or forgery)
-    // Inline expiry — enforce the TTL per-lookup so a nonce not yet swept by the
+    // Inline expiry - enforce the TTL per-lookup so a nonce not yet swept by the
     // amortized Purge is still rejected once past CNonceTtlSec.
     if SecondsBetween(Now, LState.IssuedAt) > CNonceTtlSec then
     begin
@@ -300,7 +300,7 @@ begin
       // Bind the authenticated request-target to the ACTUAL request path (RFC
       // 7616 §3.4.6). The digest is computed over the header's `uri`, so without
       // this a captured Authorization header for /public could be replayed on a
-      // request line for /admin and still verify — defeating resource binding.
+      // request line for /admin and still verify - defeating resource binding.
       LUriPath := LUri;
       LQPos := Pos('?', LUriPath);
       if LQPos > 0 then

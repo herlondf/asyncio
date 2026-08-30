@@ -1,7 +1,7 @@
-unit Poseidon.Tests.ProxyProtocol;
+﻿unit Poseidon.Tests.ProxyProtocol;
 
 // DUnitX unit tests for Poseidon.Net.ProxyProtocol.
-// All functions operate on raw byte arrays — no network I/O required.
+// All functions operate on raw byte arrays - no network I/O required.
 //
 // Coverage: TryParseProxyProtocolV1, TryParseProxyProtocolV2,
 //           TryParseProxyProtocolAuto across all branches.
@@ -70,9 +70,7 @@ begin
   Assert.AreEqual(AExpected, AActual, AMsg);
 end;
 
-// ---------------------------------------------------------------------------
 // V2 builder helper
-// ---------------------------------------------------------------------------
 
 function TProxyProtocolV2Tests.BuildV2Header(ACmd: Byte; AFamily: Byte;
   const ASrcIP, ADstIP: array of Byte;
@@ -102,9 +100,7 @@ begin
   Result[LPos + 3] := Byte(ADstPort);
 end;
 
-// ---------------------------------------------------------------------------
 // V2 tests
-// ---------------------------------------------------------------------------
 
 procedure TProxyProtocolV2Tests.V2_IPv4_ProxyCmd_ParsesAddrAndPort;
 var
@@ -239,7 +235,7 @@ begin
   LBuf[12] := $21;  // version=2, PROXY
   LBuf[13] := $11;  // AF_INET
   LBuf[14] := $00;
-  LBuf[15] := $0C;  // addr_len = 12 — needs 28 bytes total
+  LBuf[15] := $0C;  // addr_len = 12 - needs 28 bytes total
 
   TryParseProxyProtocolV2(@LBuf[0], 16,
     LAddr, LPort, LConsumed, LIncomp, LInvalid);
@@ -268,9 +264,7 @@ begin
   Assert.AreEqual(16, LConsumed);
 end;
 
-// ---------------------------------------------------------------------------
 // V1 builder + tests
-// ---------------------------------------------------------------------------
 
 function TProxyProtocolV1Tests.MakeV1(const ALine: string): TBytes;
 var
@@ -402,9 +396,7 @@ begin
   CheckInt(Length(LLine) + 2, LConsumed);
 end;
 
-// ---------------------------------------------------------------------------
 // Auto tests
-// ---------------------------------------------------------------------------
 
 procedure TProxyProtocolAutoTests.Auto_V2Signature_ParsesAsV2;
 const
@@ -459,7 +451,7 @@ var
   LAddr:     string; LPort: Word; LConsumed: Integer;
   LIncomp, LInvalid, LNoSig: Boolean;
 begin
-  // Only 3 bytes — could be the start of either PROXY or a v2 signature.
+  // Only 3 bytes - could be the start of either PROXY or a v2 signature.
   // M3: peer + trusted allowlist obrigatórios.
   LBuf := TEncoding.ASCII.GetBytes('PRO');
   TryParseProxyProtocolAuto(ppAuto, @LBuf[0], Length(LBuf),

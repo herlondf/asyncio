@@ -1,18 +1,18 @@
-unit Poseidon.Net.IO.IOUring;
+﻿unit Poseidon.Net.IO.IOUring;
 
-// TIOUringBackend — Linux io_uring backend (shared-nothing, N rings).
+// TIOUringBackend - Linux io_uring backend (shared-nothing, N rings).
 //
 // Requires Linux kernel 5.1+ (io_uring_setup / syscall 425).
 // Constructor raises ENotSupportedException if the syscall is unavailable
-// (ENOSYS — kernel < 5.1) or forbidden (EPERM — seccomp sandbox), so
+// (ENOSYS - kernel < 5.1) or forbidden (EPERM - seccomp sandbox), so
 // TPoseidonNativeServer falls back to TEpollBackend at runtime with zero
 // per-request overhead (the FIOBackend vtable pointer is set once at Create).
 //
-// Architecture (shared-nothing per core — mirrors TEpollBackend):
+// Architecture (shared-nothing per core - mirrors TEpollBackend):
 //   The backend owns N TUringRing objects (N = AWorkerCount, one per core).
 //   Each ring has:
 //     - its OWN io_uring instance (ring fd + SQ/CQ mmaps + SQE array),
-//     - its OWN listen socket (SO_REUSEPORT — kernel hashes new connections
+//     - its OWN listen socket (SO_REUSEPORT - kernel hashes new connections
 //       across the N sockets, spreading load with zero userspace coordination),
 //     - one accept thread (accept4() loop) that stamps GCurrentRingIdx = ring
 //       index before OnNewConn, so RegisterConn pins the connection to it,
@@ -21,7 +21,7 @@ unit Poseidon.Net.IO.IOUring;
 //   A connection is pinned to a ring for life (TNativeConn.OwnerRingIdx); every
 //   PostRecv / PostSend / _ResubmitSend / SocketClose submits SQEs to THAT
 //   ring's SQ. Recv, handler (SyncDispatch), and send-submit for a given
-//   connection therefore all run on that ring's single completion thread — no
+//   connection therefore all run on that ring's single completion thread - no
 //   cross-ring locking, and N rings drive N cores in parallel. This replaces
 //   the previous single-ring / single-completion-thread design, whose one
 //   thread serialized every connection and capped throughput at ~2 cores.
@@ -31,9 +31,9 @@ unit Poseidon.Net.IO.IOUring;
 //   plain io_uring_enter(to_submit=N) per batch.
 //
 // user_data encoding in SQEs / CQEs:
-//   Recv:     UInt64(PRecvCtx)              — bit 0 = 0 (pool-allocated, 8-byte aligned)
-//   Send:     UInt64(TNativeConn) or $1     — bit 0 = 1
-//   SendZC:   UInt64(PSendZCRef) or $3      — bits 0+1 = 1
+//   Recv:     UInt64(PRecvCtx)              - bit 0 = 0 (pool-allocated, 8-byte aligned)
+//   Send:     UInt64(TNativeConn) or $1     - bit 0 = 1
+//   SendZC:   UInt64(PSendZCRef) or $3      - bits 0+1 = 1
 //   Shutdown: CUdShutdown = $FFFFFFFFFFFFFFFF
 //
 // Recv contexts are pre-allocated per ring in a contiguous pool (CRecvPoolSize
@@ -67,7 +67,7 @@ uses
   Poseidon.Net.Pool.Buffer;
 
 type
-  TIOUringBackend = class;  // forward — TUringRing holds a back-pointer
+  TIOUringBackend = class;  // forward - TUringRing holds a back-pointer
 
   // Per-ring state. One io_uring instance + one listen socket + one accept
   // thread + one completion thread. See the unit header for the shared-nothing
@@ -97,14 +97,14 @@ type
     FAcceptThread: TThread;   // fallback only (kernel without multishot accept)
     FMultishotAccept: Boolean; // True once this ring accepts via io_uring itself
     FAcceptErrStreak: Integer; // consecutive multishot-accept errors (fd exhaustion watch)
-    // Registered files — per ring (io_uring registered fds are ring-local).
+    // Registered files - per ring (io_uring registered fds are ring-local).
     FRegFiles: Boolean;
     FRegFds: array of Int32;
     FRegCount: Integer;
     FRegFreeStack: array of Integer;
     FRegFreeTop: Integer;
     FRegLock: TCriticalSection;
-    // Pre-allocated recv-context pool — per ring.
+    // Pre-allocated recv-context pool - per ring.
     FRecvCtxPool: Pointer;
     FRecvFreeIdx: array of UInt16;
     FRecvFreeTop: Integer;
@@ -154,7 +154,6 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    // IIOBackend
     procedure SetInlineDispatch(AEnabled: Boolean);
     procedure StartListening(const AHost: string; APort: Integer;
       AWorkerCount: Integer; AFastOpen: Boolean; ACallbacks: IIOCallbacks;
@@ -174,9 +173,7 @@ type
 
 implementation
 
-// ---------------------------------------------------------------------------
 // io_uring constants and types
-// ---------------------------------------------------------------------------
 
 const
   // Linux x86-64 syscall numbers
@@ -233,7 +230,7 @@ const
 
   CRegFilesMax = 4096;  // max registered fd slots per ring
 
-  // io_uring_probe_op flag — op is supported by this kernel
+  // io_uring_probe_op flag - op is supported by this kernel
   IO_URING_OP_SUPPORTED = UInt16(1);
 
   // Linux setsockopt level/option constants not in the RTL
@@ -244,7 +241,7 @@ const
 
   // #229: bounds a stuck send. IOSQE_ASYNC fallback (#199/#207 EAGAIN retry)
   // hands the send to a kernel io-wq worker that performs an effectively
-  // BLOCKING send() — if the peer never drains (a stalled/adversarial
+  // BLOCKING send() - if the peer never drains (a stalled/adversarial
   // connection), that worker blocks forever and is never reclaimed, since
   // this backend has no IORING_OP_ASYNC_CANCEL on connection teardown. Each
   // such connection leaks one kernel thread permanently; under sustained
@@ -271,7 +268,7 @@ const
   // is cheaper. Below the threshold we use the regular send path.
   CSendZCThreshold = 16384;
   // Log once when a ring's multishot accept has failed this many times in a row
-  // (e.g. sustained EMFILE / fd exhaustion) — surfaces the condition without
+  // (e.g. sustained EMFILE / fd exhaustion) - surfaces the condition without
   // spamming stderr on every re-arm.
   CAcceptErrLogAt = 64;
   // Recv contexts per ring. Smaller than CRingEntries because connections are
@@ -327,7 +324,7 @@ type
     cq_off:         TIOCQRingOffsets;
   end;
 
-  // Submission Queue Entry — 64 bytes
+  // Submission Queue Entry - 64 bytes
   PIOUringSQE = ^TIOUringSQE;
   TIOUringSQE = packed record
     opcode:       Byte;
@@ -346,7 +343,7 @@ type
     _pad2:        UInt64;
   end;
 
-  // Completion Queue Entry — 16 bytes
+  // Completion Queue Entry - 16 bytes
   PIOUringCQE = ^TIOUringCQE;
   TIOUringCQE = packed record
     user_data: UInt64;
@@ -365,7 +362,7 @@ type
     resv2: UInt32;
   end;
 
-  // Header followed by ops[0..last_op] — covers up to opcode 53
+  // Header followed by ops[0..last_op] - covers up to opcode 53
   // (IORING_OP_SEND_ZC), so a fixed array of 64 entries is needed.
   TIOUringProbe = packed record
     last_op:  Byte;
@@ -407,16 +404,14 @@ threadvar
   // Non-nil while THIS thread is inside its own ring's _CompletionLoop drain.
   // _NotifyKernel then DEFERS the io_uring_enter: the queued SQEs ride the next
   // io_uring_enter(GETEVENTS) at the top of the loop, so one syscall both submits
-  // the batch and waits for completions — instead of one enter per PostSend/
+  // the batch and waits for completions - instead of one enter per PostSend/
   // PostRecv. Submissions from other threads (async worker pool) see nil here and
   // submit immediately, as before.
   GDrainRing: TUringRing;
 
-// ---------------------------------------------------------------------------
 // Syscall wrappers
-// ---------------------------------------------------------------------------
 
-// libc's variadic syscall(2) — used for io_uring syscalls not yet in the RTL.
+// libc's variadic syscall(2) - used for io_uring syscalls not yet in the RTL.
 function _csyscall(number: NativeInt): NativeInt; cdecl;
   external 'libc.so.6' name 'syscall'; varargs;
 
@@ -441,9 +436,7 @@ begin
     AFd, AOpcode, AArg, ANrArgs));
 end;
 
-// ---------------------------------------------------------------------------
-// libc helpers (same set as TEpollBackend — duplicated to avoid cross-coupling)
-// ---------------------------------------------------------------------------
+// libc helpers (same set as TEpollBackend - duplicated to avoid cross-coupling)
 
 function _LinuxAccept4(sockfd: Integer; addr: Pointer; addrlen: Pointer;
   flags: Integer): Integer; cdecl; external 'libc.so.6' name 'accept4';
@@ -493,9 +486,7 @@ begin
   end;
 end;
 
-// ===========================================================================
 // TUringRing
-// ===========================================================================
 
 constructor TUringRing.Create(ABackend: TIOUringBackend; AIdx: Integer);
 begin
@@ -553,9 +544,9 @@ var
   I: Integer;
   LInitFds: array of Int32;
 begin
-  // Normal mode (no SQPOLL — see unit header). COOP_TASKRUN (kernel 5.19+) tells
-  // the kernel it needs no inter-processor interrupt to notify completions — the
-  // completion thread reaps them on its next io_uring_enter anyway — cutting
+  // Normal mode (no SQPOLL - see unit header). COOP_TASKRUN (kernel 5.19+) tells
+  // the kernel it needs no inter-processor interrupt to notify completions - the
+  // completion thread reaps them on its next io_uring_enter anyway - cutting
   // per-completion overhead (~+7% throughput at high concurrency, measured).
   // Fall back progressively: COOP -> plain CQSIZE -> bare, so older kernels and
   // seccomp policies still work.
@@ -618,7 +609,7 @@ begin
   FPCQEs := Pointer(PByte(FCQRing) + LParams.cq_off.cqes);
 
   if (LParams.features and IORING_FEAT_NODROP) = 0 then
-    Writeln(ErrOutput, '[io_uring] WARNING: kernel lacks IORING_FEAT_NODROP — ',
+    Writeln(ErrOutput, '[io_uring] WARNING: kernel lacks IORING_FEAT_NODROP - ',
       'CQE overflow may silently drop completions. CQ size = ', LParams.cq_entries);
 
   for I := 0 to Integer(LParams.sq_entries) - 1 do
@@ -633,10 +624,10 @@ begin
   for I := 0 to CRecvPoolSize - 1 do
     FRecvFreeIdx[I] := UInt16(I);
 
-  // Registered files (per ring) — eliminates fget/fput atomics per I/O op.
+  // Registered files (per ring) - eliminates fget/fput atomics per I/O op.
   SetLength(LInitFds, CRegFilesMax);
   for I := 0 to CRegFilesMax - 1 do
-    LInitFds[I] := -1; // sparse table — all slots empty
+    LInitFds[I] := -1; // sparse table - all slots empty
   if _io_uring_register(FRingFd, IORING_REGISTER_FILES,
     @LInitFds[0], CRegFilesMax) >= 0 then
   begin
@@ -650,7 +641,7 @@ end;
 
 procedure TUringRing.StartThreads;
 begin
-  // Completion thread first — it must be draining before any accept can produce
+  // Completion thread first - it must be draining before any accept can produce
   // a connection whose recv submits to this ring.
   FCompThread := TThread.CreateAnonymousThread(
     procedure
@@ -665,7 +656,7 @@ begin
   FCompThread.Start;
 
   // Accept via io_uring multishot (kernel 5.19+) so THIS ring's completion
-  // thread also does the accepting — no dedicated accept thread. That keeps the
+  // thread also does the accepting - no dedicated accept thread. That keeps the
   // total IO thread count at N (one per ring), matching TEpollBackend, instead
   // of 2N (a separate accept thread per ring oversubscribes the cores and, under
   // sustained load, starves/wedges connections). Fall back to a per-ring accept
@@ -763,9 +754,7 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
-// Registered files — eliminates fget/fput atomic refcount per I/O op
-// ---------------------------------------------------------------------------
+// Registered files - eliminates fget/fput atomic refcount per I/O op
 
 function TUringRing._RegFileIndex(AFd: Integer): Integer;
 begin
@@ -854,18 +843,16 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
 // Pre-allocated recv context pool (per ring)
-// ---------------------------------------------------------------------------
 
 function TUringRing._RecvPoolAcquire: Pointer;
-// Exhaustion fallback allocates via a properly-typed PRecvCtx local — New()
+// Exhaustion fallback allocates via a properly-typed PRecvCtx local - New()
 // on a variable of the generic Pointer type does not know SizeOf(TRecvCtx)
 // and (observed on this Linux/glibc runtime) can hand back a null pointer,
 // which the caller then dereferences unconditionally. Reproduced with
 // Autobahn 12.2.17 (#226): under sustained heavy fragmented-message load the
 // per-ring 256-slot pool exhausts, this path fires, and PostRecv crashed with
-// an EAccessViolation at address 0 — silently caught by the worker/CQE
+// an EAccessViolation at address 0 - silently caught by the worker/CQE
 // exception guard, but the recv was never posted, stalling the connection.
 var
   LIdx: Integer;
@@ -908,15 +895,13 @@ begin
     Dispose(PRecvCtx(ACtx));
 end;
 
-// ---------------------------------------------------------------------------
-// Notify kernel about new SQEs (normal mode — no SQPOLL).
-// ---------------------------------------------------------------------------
+// Notify kernel about new SQEs (normal mode - no SQPOLL).
 
 procedure TUringRing._NotifyKernel;
 var
   LPending: Integer;
 begin
-  // Batched path: called on this ring's completion thread mid-drain — leave the
+  // Batched path: called on this ring's completion thread mid-drain - leave the
   // SQEs queued; the loop's next io_uring_enter(GETEVENTS) submits them in one
   // syscall together with the wait. (FPendingSQEs stays as-is.)
   if GDrainRing = Self then
@@ -928,9 +913,7 @@ begin
   _io_uring_enter(FRingFd, LPending, 0, 0);
 end;
 
-// ---------------------------------------------------------------------------
-// SQE submission — MUST be called under FSQLock
-// ---------------------------------------------------------------------------
+// SQE submission - MUST be called under FSQLock
 
 function TUringRing._SubmitSQE(AOpcode: Byte; AFd: Integer;
   ABuf: Pointer; ALen: UInt32; AUserData: UInt64; AFlags: Byte): Boolean;
@@ -973,9 +956,7 @@ begin
   Result := True;
 end;
 
-// ---------------------------------------------------------------------------
-// Completion thread — one per ring; serial CQE drain after each wakeup
-// ---------------------------------------------------------------------------
+// Completion thread - one per ring; serial CQE drain after each wakeup
 
 procedure TUringRing._CompletionLoop;
 var
@@ -987,7 +968,7 @@ begin
   // this thread processes a multishot-accept CQE) pins the connection here.
   GCurrentRingIdx := FIdx;
   // Mark this thread as its ring's drain thread so _NotifyKernel defers submits
-  // into the batched io_uring_enter below — only under inline dispatch (see
+  // into the batched io_uring_enter below - only under inline dispatch (see
   // SetInlineDispatch). Under the async pool GDrainRing stays nil (no batching).
   if FBackend.FBatchSubmit then
     GDrainRing := Self;
@@ -1004,7 +985,7 @@ begin
       _io_uring_enter(FRingFd, UInt32(LToSubmit), 1, IORING_ENTER_GETEVENTS);
 
       // Re-arm multishot accept if a previous drain's re-arm (in _ProcessCQE)
-      // found the SQ full and gave up (#224 — silent, permanent loss of
+      // found the SQ full and gave up (#224 - silent, permanent loss of
       // accept on this ring). The syscall above just let the kernel consume
       // submitted SQEs, so FPSQHead^ has advanced and there is now the best
       // chance of room; retried every iteration until it succeeds.
@@ -1027,7 +1008,7 @@ begin
       LHead := FPCQHead^;
       LTail := FPCQTail^;
 
-      // Batch CQ head update — process all CQEs, then advance head once.
+      // Batch CQ head update - process all CQEs, then advance head once.
       while LHead <> LTail do
       begin
         LCQE := PIOUringCQE(PByte(FPCQEs) +
@@ -1047,10 +1028,8 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
-// Accept thread — plain accept4() loop on this ring's listen socket.
+// Accept thread - plain accept4() loop on this ring's listen socket.
 // Stamps GCurrentRingIdx so RegisterConn pins the connection to this ring.
-// ---------------------------------------------------------------------------
 
 procedure TUringRing._AcceptLoop;
 var
@@ -1091,9 +1070,7 @@ begin
   end;
 end;
 
-// ===========================================================================
-// TIOUringBackend — constructor / destructor
-// ===========================================================================
+// TIOUringBackend - constructor / destructor
 
 constructor TIOUringBackend.Create;
 var
@@ -1153,7 +1130,7 @@ var
   I: Integer;
   LAnyComp: Boolean;
 begin
-  // Safety net for the "Stop was never fully driven" path. Idempotent — after a
+  // Safety net for the "Stop was never fully driven" path. Idempotent - after a
   // normal Stop (StopAccept + SignalWorkers + JoinWorkers) the guards below are
   // all no-ops.
   StopAccept;
@@ -1172,9 +1149,7 @@ begin
   inherited Destroy;
 end;
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function TIOUringBackend._RingOf(AConn: TNativeConn): TUringRing;
 begin
@@ -1195,7 +1170,7 @@ begin
   _LinuxSetsockopt(Result, SOL_SOCKET, SO_REUSEPORT, @LOne, SizeOf(LOne));
   if FFastOpen then
     _LinuxSetsockopt(Result, IPPROTO_TCP, CTCP_FASTOPEN, @LOne, SizeOf(LOne));
-  // TCP_DEFER_ACCEPT — kernel waits for data before waking accept
+  // TCP_DEFER_ACCEPT - kernel waits for data before waking accept
   _LinuxSetsockopt(Result, IPPROTO_TCP, CTCP_DEFER_ACCEPT, @LOne, SizeOf(LOne));
 
   FillChar(LAddr, SizeOf(LAddr), 0);
@@ -1212,14 +1187,12 @@ begin
     raise Exception.Create('listen() failed: ' + IntToStr(GetLastError));
 end;
 
-// ---------------------------------------------------------------------------
-// IIOBackend — lifecycle
-// ---------------------------------------------------------------------------
+// IIOBackend - lifecycle
 
 procedure TIOUringBackend.SetInlineDispatch(AEnabled: Boolean);
 begin
   // Submission batching is only correct when the thread that submits SQEs (via
-  // PostSend/PostRecv during dispatch) IS the completion thread — i.e. inline
+  // PostSend/PostRecv during dispatch) IS the completion thread - i.e. inline
   // SyncDispatch. Under the async worker pool, sends are submitted from pool
   // threads and only the completion thread's own re-arms/resubmits would be
   // batched; that path interacts badly with large fragmented WebSocket sends
@@ -1256,7 +1229,7 @@ begin
     FRings[I] := TUringRing.Create(Self, I);
 
   // Listen sockets first (SO_REUSEPORT), then set up each ring, then start
-  // threads — completion thread must be draining before its accept thread runs.
+  // threads - completion thread must be draining before its accept thread runs.
   for I := 0 to FRingCount - 1 do
     FRings[I].FListenSocket := _CreateListenSocket;
   for I := 0 to FRingCount - 1 do
@@ -1325,9 +1298,7 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
-// IIOBackend — per-connection
-// ---------------------------------------------------------------------------
+// IIOBackend - per-connection
 
 procedure TIOUringBackend.RegisterConn(AConn: Pointer);
 var
@@ -1345,7 +1316,7 @@ var
   LRing: TUringRing;
   LAlreadyInFlight: Boolean;
 begin
-  // #230: enforce ONE IORING_OP_RECV in flight per connection at a time —
+  // #230: enforce ONE IORING_OP_RECV in flight per connection at a time -
   // see TNativeConn.RecvInFlight. If one is already outstanding, do nothing;
   // its own completion (OnRecv -> ... -> PostRecv) re-arms as needed.
   LConn.Lock.Enter;
@@ -1366,7 +1337,7 @@ begin
     if not LRing._SubmitSQE(IORING_OP_RECV, LConn.Socket,
       @LCtx^.Buf[0], CRecvBufSize, UInt64(LCtx)) then
     begin
-      // Ring full — cancel the ref we just took and signal an error so the
+      // Ring full - cancel the ref we just took and signal an error so the
       // server closes the connection instead of leaving it orphaned forever.
       LConn.Release;
       LRing._RecvPoolRelease(LCtx);
@@ -1397,7 +1368,7 @@ begin
     Exit;
   end;
 
-  // #11: serialize — io_uring won't order independent SEND SQEs, so at most ONE
+  // #11: serialize - io_uring won't order independent SEND SQEs, so at most ONE
   // send may be in flight per connection. If one already is, queue and return.
   if not _BeginSend(LConn, AData, LSendLen) then
   begin
@@ -1471,7 +1442,7 @@ begin
 
   // Fast path: the headers buffer is a pooled tier buffer (typically 8 KB) with
   // only ~100 bytes used, so a small body fits after it. Append it in place and
-  // send the SAME buffer — no extra Acquire, no copy of the header bytes. This is
+  // send the SAME buffer - no extra Acquire, no copy of the header bytes. This is
   // the common plaintext/json case. (io_uring SEND takes one contiguous buffer,
   // so we can't scatter-gather like epoll's writev.)
   if (LHLen + LBLen <= Length(AHeaders)) then
@@ -1482,7 +1453,7 @@ begin
     Exit;
   end;
 
-  // Slow path: body too big to append (e.g. json-large) — concatenate into a
+  // Slow path: body too big to append (e.g. json-large) - concatenate into a
   // fresh buffer sized for the total.
   LConcat := TBufferPool.Acquire(LHLen + LBLen);
   if LHLen > 0 then Move(AHeaders[0], LConcat[0], LHLen);
@@ -1509,7 +1480,7 @@ begin
   // SQEs still queued (e.g. an h2 error path just deferred a GOAWAY send and now
   // closes the connection in the same drain), flush them to the kernel BEFORE
   // closing the fd. Otherwise the deferred send would target an already-closed
-  // socket and the final frame (GOAWAY / RST_STREAM) would be lost — h2spec
+  // socket and the final frame (GOAWAY / RST_STREAM) would be lost - h2spec
   // 6.9.1 "WINDOW_UPDATE above 2^31-1". The kernel copies the small control
   // frame into the socket send buffer at submit time, so the subsequent
   // shutdown(SHUT_WR) still flushes it out ahead of the FIN.
@@ -1528,16 +1499,14 @@ begin
   end;
 
   LRing._UnregisterFd(LSock);
-  // TCP half-close — FIN before full teardown so the client reads pending bytes
+  // TCP half-close - FIN before full teardown so the client reads pending bytes
   shutdown(LSock, SHUT_WR);
   _LinuxClose(LSock);
 end;
 
-// ---------------------------------------------------------------------------
 // Internal: send helpers
-// ---------------------------------------------------------------------------
 
-// #11 — serialization gate. Under LConn.Lock: if a send is already in flight,
+// #11 - serialization gate. Under LConn.Lock: if a send is already in flight,
 // copy AData onto the connection's ordered backlog and return False (queued);
 // otherwise mark in-flight and return True (caller submits now).
 function TIOUringBackend._BeginSend(AConn: TNativeConn; const AData: TBytes;
@@ -1565,7 +1534,7 @@ begin
   end;
 end;
 
-// #11 — called when a send op fully completes. If the backlog holds queued
+// #11 - called when a send op fully completes. If the backlog holds queued
 // bytes, move them into PendingSend and submit ONE regular SEND (keeping the
 // conn in-flight, order preserved) -> True. Otherwise clear in-flight -> False.
 function TIOUringBackend._KickNextSend(AConn: TNativeConn): Boolean;
@@ -1619,7 +1588,7 @@ begin
       @AConn.PendingSend[AConn.SentBytes], UInt32(LRemain),
       UInt64(AConn) or CUdTagSend, LFlags) then
     begin
-      AConn.Release;  // op not posted — drop the ref we just took
+      AConn.Release;  // op not posted - drop the ref we just took
       FCallbacks.OnConnError(AConn);
       Exit;
     end;
@@ -1629,10 +1598,8 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
-// CQE dispatch — runs on ARing's completion thread. The connection carried by
+// CQE dispatch - runs on ARing's completion thread. The connection carried by
 // the CQE is pinned to ARing, so any resubmit routes back to ARing.
-// ---------------------------------------------------------------------------
 
 procedure TIOUringBackend._ProcessCQE(ARing: TUringRing; AUserData: UInt64;
   ARes: Int32; AFlags: UInt32);
@@ -1657,7 +1624,7 @@ begin
     Exit;
   end;
 
-  // Multishot-accept CQE (CUdTagAccept = 2, an exact sentinel — no pool pointer
+  // Multishot-accept CQE (CUdTagAccept = 2, an exact sentinel - no pool pointer
   // or conn value equals 2). This ring's completion thread does the accepting,
   // so GCurrentRingIdx (set at loop entry) pins the new connection to ARing.
   if AUserData = CUdTagAccept then
@@ -1685,15 +1652,15 @@ begin
     else if (TInterlocked.Read(FShutdown) = 0) and (ARing.FListenSocket >= 0) then
     begin
       // Genuine accept error (not teardown). We still re-arm below so the ring
-      // recovers once the transient condition (EMFILE/ENFILE — fd exhaustion)
+      // recovers once the transient condition (EMFILE/ENFILE - fd exhaustion)
       // clears, but surface a sustained streak once so it is not silent.
       Inc(ARing.FAcceptErrStreak);
       if ARing.FAcceptErrStreak = CAcceptErrLogAt then
         Writeln(ErrOutput, '[io_uring] ring ', ARing.FIdx,
           ': ', CAcceptErrLogAt, ' consecutive accept errors (errno ',
-          -ARes, ') — fd exhaustion?');
+          -ARes, ') - fd exhaustion?');
     end;
-    // F_MORE clear ⇒ kernel ended the multishot stream — re-arm it (unless we
+    // F_MORE clear ⇒ kernel ended the multishot stream - re-arm it (unless we
     // are shutting down or the listen socket was already closed by StopAccept).
     if (AFlags and IORING_CQE_F_MORE) = 0 then
     begin
@@ -1715,7 +1682,7 @@ begin
     Exit;
   end;
 
-  // Zero-copy send (CUdTagSendZC = 3, both bits 0+1 set) — check before send.
+  // Zero-copy send (CUdTagSendZC = 3, both bits 0+1 set) - check before send.
   if (AUserData and 3) = CUdTagSendZC then
   begin
     LZCRef := PSendZCRef(Pointer(AUserData and not UInt64(3)));
@@ -1723,7 +1690,7 @@ begin
 
     if (AFlags and IORING_CQE_F_NOTIF) <> 0 then
     begin
-      // Buffer release notification — kernel no longer needs the buffer
+      // Buffer release notification - kernel no longer needs the buffer
       if LZCRef^.SendBuf <> nil then
         TBufferPool.Release(LZCRef^.SendBuf);
       Dispose(LZCRef);
@@ -1732,7 +1699,7 @@ begin
     end;
 
     // Send result CQE. A notification CQE (F_NOTIF) only follows when the
-    // result CQE carried IORING_CQE_F_MORE — i.e. the kernel took a reference to
+    // result CQE carried IORING_CQE_F_MORE - i.e. the kernel took a reference to
     // the buffer. On an early failure (res<=0) F_MORE is clear and NO
     // notification comes, so this path must do the cleanup the notification
     // would have done. #194
@@ -1740,13 +1707,13 @@ begin
 
     // #207: a zero-copy SEND on an already-full socket buffer returns -EAGAIN
     // with NO buffer reference taken (F_MORE clear ⇒ no F_NOTIF will follow).
-    // Like the regular SEND path (#199), this is NOT fatal — retry the whole
+    // Like the regular SEND path (#199), this is NOT fatal - retry the whole
     // buffer via a blocking regular SEND (io-wq).
     if (ARes = -CEAGAIN) and (not LHasNotif) then
     begin
       LConn.PendingSend       := LZCRef^.SendBuf;
       LConn.PendingSendActual := LZCRef^.TotalLen;
-      LConn.SentBytes         := LZCRef^.SentBytes;  // 0 — ZC is only the 1st op
+      LConn.SentBytes         := LZCRef^.SentBytes;  // 0 - ZC is only the 1st op
       LZCRef^.SendBuf := nil;                         // ownership → PendingSend
       Dispose(LZCRef);
       _ResubmitSend(LConn, True);                     // io-wq async; own AddRef
@@ -1765,7 +1732,7 @@ begin
       Inc(LZCRef^.SentBytes, ARes);
       if LZCRef^.SentBytes < LZCRef^.TotalLen then
       begin
-        // Partial send — send the remainder via a regular IORING_OP_SEND.
+        // Partial send - send the remainder via a regular IORING_OP_SEND.
         if LHasNotif then
         begin
           // The kernel still references SendBuf[0..SentBytes) until the pending
@@ -1781,7 +1748,7 @@ begin
         end
         else
         begin
-          // No notification pending (kernel copied) — hand the original over.
+          // No notification pending (kernel copied) - hand the original over.
           LConn.PendingSend       := LZCRef^.SendBuf;
           LConn.PendingSendActual := LZCRef^.TotalLen;
           LConn.SentBytes         := LZCRef^.SentBytes;
@@ -1800,7 +1767,7 @@ begin
       end;
     end;
 
-    // #194: no notification CQE will follow — release buffer + ctx + the second
+    // #194: no notification CQE will follow - release buffer + ctx + the second
     // (notification) ref here instead of leaking them on every failed ZC send.
     if not LHasNotif then
     begin
@@ -1817,11 +1784,11 @@ begin
     LConn := TNativeConn(Pointer(UInt64(AUserData and not CUdTagSend)));
 
     // #199: a non-blocking SEND on a full socket buffer returns -EAGAIN. That is
-    // NOT fatal — re-submit the same remaining bytes via io-wq (IOSQE_ASYNC) so
+    // NOT fatal - re-submit the same remaining bytes via io-wq (IOSQE_ASYNC) so
     // the kernel completes the send as the peer drains.
     // #229: with CSO_SNDTIMEO set on the socket, the io-wq blocking send also
     // surfaces as -EAGAIN once it times out (CSendTimeoutSec) rather than
-    // blocking forever — a genuinely-stalled peer (never drains) would
+    // blocking forever - a genuinely-stalled peer (never drains) would
     // otherwise retry this branch indefinitely, one permanently-parked io-wq
     // kernel thread per stuck connection, unboundedly across connections
     // (live-reproduced: 161->372 OS threads in 5 minutes under sustained
@@ -1854,13 +1821,13 @@ begin
 
     if LConn.SentBytes < LTotal then
     begin
-      // Partial send — re-submit for the remaining bytes.
+      // Partial send - re-submit for the remaining bytes.
       _ResubmitSend(LConn);
       LConn.Release;
     end
     else
     begin
-      // All bytes delivered — return buffer, then either submit the next queued
+      // All bytes delivered - return buffer, then either submit the next queued
       // chunk (#11: preserves TLS byte order) or notify the server. Drop our ref.
       TBufferPool.Release(LConn.PendingSend);
       LConn.PendingSend := nil;
@@ -1875,7 +1842,7 @@ begin
     LCtx := PRecvCtx(Pointer(AUserData));
     LRecvConn := LCtx^.Conn;
     try
-      // #230: this recv is done — clear before dispatching, since OnRecv's
+      // #230: this recv is done - clear before dispatching, since OnRecv's
       // call chain (StepWSBranch) may re-arm the next one and must see
       // RecvInFlight=False to do so.
       LRecvConn.Lock.Enter;
@@ -1889,7 +1856,7 @@ begin
       else if ARes = 0 then
         FCallbacks.OnConnError(LRecvConn)    // graceful FIN from peer
       else if ARes = -EAGAIN then
-        PostRecv(LRecvConn)                  // spurious wakeup — re-arm (PostRecv AddRefs)
+        PostRecv(LRecvConn)                  // spurious wakeup - re-arm (PostRecv AddRefs)
       else
         FCallbacks.OnConnError(LRecvConn);   // real error
     finally

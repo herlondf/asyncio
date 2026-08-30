@@ -1,9 +1,9 @@
-unit Poseidon;
+﻿unit Poseidon;
 
-// Poseidon — REST framework for Delphi 11+
+// Poseidon - REST framework for Delphi 11+
 // Built for performance: zero-copy native API with IOCP/epoll.
 //
-// Quick start (native API — recommended):
+// Quick start (native API - recommended):
 //   uses Poseidon;
 //
 //   var
@@ -38,7 +38,7 @@ uses
   Poseidon.Problem;
 
 type
-  // Primary API — native zero-copy
+  // Primary API - native zero-copy
   TPoseidonServer = Poseidon.Native.Server.TPoseidonServer;
   TNativeRequestContext = Poseidon.Native.Types.TNativeRequestContext;
   PNativeRequestContext = Poseidon.Native.Types.PNativeRequestContext;
@@ -63,7 +63,7 @@ type
   THTTPStatus = Poseidon.Status.THTTPStatus;
   TMimeType = Poseidon.Status.TMimeType;
 
-  // Validation (RTTI attributes) — so `uses Poseidon` can annotate/validate DTOs
+  // Validation (RTTI attributes) - so `uses Poseidon` can annotate/validate DTOs
   TPoseidonValidator = Poseidon.Validation.TPoseidonValidator;
   TPoseidonValidationError = Poseidon.Validation.TPoseidonValidationError;
   PoseidonValidationAttribute = Poseidon.Validation.PoseidonValidationAttribute;

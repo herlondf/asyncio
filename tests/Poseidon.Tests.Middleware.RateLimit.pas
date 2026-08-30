@@ -1,4 +1,4 @@
-unit Poseidon.Tests.Middleware.RateLimit;
+﻿unit Poseidon.Tests.Middleware.RateLimit;
 
 interface
 
@@ -98,7 +98,7 @@ begin
   Assert.AreEqual('98', GetExtraHeader(LCtx2, 'X-RateLimit-Remaining'));
 end;
 
-// #209 regression: an unbounded counter map is a memory-DoS — a distinct-key
+// #209 regression: an unbounded counter map is a memory-DoS - a distinct-key
 // flood (IPv6 rotation / spoofed XFF) inserts one live entry per request. With
 // the map capped at 5 tracked keys, the 6th distinct source must be refused
 // (429) rather than growing the map.

@@ -1,4 +1,4 @@
-unit Poseidon.Middleware.Timeout;
+﻿unit Poseidon.Middleware.Timeout;
 
 // Measures handler execution time. If it exceeds ATimeoutMs,
 // overrides the response with 504 Gateway Timeout.
@@ -21,7 +21,7 @@ uses
 
 // #192: the timeout replaces the body, so content headers an inner middleware
 // added for the ORIGINAL body (Content-Encoding, Content-Length, ETag) are now
-// stale — e.g. a leftover 'Content-Encoding: gzip' makes the client try to
+// stale - e.g. a leftover 'Content-Encoding: gzip' makes the client try to
 // gunzip plain JSON. Strip only those; keep everything else (CORS, security...).
 procedure StripStaleContentHeaders(var ACtx: TNativeRequestContext);
 var

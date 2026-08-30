@@ -1,6 +1,6 @@
-unit Poseidon.Tests.ParserConsumed;
+﻿unit Poseidon.Tests.ParserConsumed;
 
-// DUnitX — a invariante AConsumed <= ABufLen dos parsers HTTP/1.
+// DUnitX - a invariante AConsumed <= ABufLen dos parsers HTTP/1.
 //
 // POR QUE ISSO IMPORTA
 //
@@ -11,7 +11,7 @@ unit Poseidon.Tests.ParserConsumed;
 //
 //   Move(ABuf^, LConn.AccumBuf[LConn.AccumLen], ALen)
 //
-// com indice negativo — uma escrita ANTES do inicio do bloco, destruindo o
+// com indice negativo - uma escrita ANTES do inicio do bloco, destruindo o
 // header do chunk anterior. No Linux/glibc isso aparece como
 // `corrupted size vs. prev_size`.
 //
@@ -79,7 +79,7 @@ begin
   Assert.IsTrue(LConsumed >= 0,
     Format('%s [full]: AConsumed negativo (%d)', [AWhat, LConsumed]));
   Assert.IsTrue(LConsumed <= LLen,
-    Format('%s [full]: AConsumed=%d > ABufLen=%d — AccumLen ficaria negativo',
+    Format('%s [full]: AConsumed=%d > ABufLen=%d - AccumLen ficaria negativo',
       [AWhat, LConsumed, LLen]));
 
   LConsumed := -1;
@@ -88,7 +88,7 @@ begin
   Assert.IsTrue(LConsumed >= 0,
     Format('%s [light]: AConsumed negativo (%d)', [AWhat, LConsumed]));
   Assert.IsTrue(LConsumed <= LLen,
-    Format('%s [light]: AConsumed=%d > ABufLen=%d — AccumLen ficaria negativo',
+    Format('%s [light]: AConsumed=%d > ABufLen=%d - AccumLen ficaria negativo',
       [AWhat, LConsumed, LLen]));
 end;
 
@@ -122,7 +122,7 @@ begin
   LBody := StringOfChar('x', 5000);
   CheckBothStr('post 5000',
     'POST /e HTTP/1.1'#13#10'Host: x'#13#10'Content-Length: 5000'#13#10#13#10 + LBody);
-  // corpo presente porem INCOMPLETO — parser deve pedir mais, nao consumir alem
+  // corpo presente porem INCOMPLETO - parser deve pedir mais, nao consumir alem
   CheckBothStr('post incompleto',
     'POST /e HTTP/1.1'#13#10'Host: x'#13#10'Content-Length: 5000'#13#10#13#10 +
     StringOfChar('x', 100));
@@ -194,7 +194,7 @@ var
   LSeed: UInt64;
   I, J: Integer;
 begin
-  // PRNG deterministico (xorshift64), como o fuzzer do repo — falha
+  // PRNG deterministico (xorshift64), como o fuzzer do repo - falha
   // reproduzivel.
   LSeed := $9E3779B97F4A7C15;
   for J := 1 to 200 do

@@ -1,6 +1,6 @@
-unit Poseidon.Net.IO.IOCP;
+﻿unit Poseidon.Net.IO.IOCP;
 
-// TIOCPBackend — Windows IOCP (I/O Completion Ports) backend.
+// TIOCPBackend - Windows IOCP (I/O Completion Ports) backend.
 // R-1: extracted from Poseidon.Net.HttpServer.  All platform-specific Windows
 // socket code lives here; HttpServer.pas now references this unit only at
 // construction time via a single {$IFDEF MSWINDOWS}.
@@ -50,7 +50,6 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    // IIOBackend
     procedure StartListening(const AHost: string; APort: Integer;
       AWorkerCount: Integer; AFastOpen: Boolean; ACallbacks: IIOCallbacks;
       AAcceptThreads: Integer = 1);
@@ -74,18 +73,18 @@ implementation
 // Winsock itself), but each TIOCPBackend instance previously called
 // WSAStartup on Start and WSACleanup on JoinWorkers unconditionally. Two
 // TPoseidonNativeServer instances created sequentially in one process (as
-// DUnitX's SyncDispatch and async DeferredResponse fixtures do — the
+// DUnitX's SyncDispatch and async DeferredResponse fixtures do - the
 // second's SetupFixture runs right after the first's TeardownFixture) can
 // then race: the first instance's WSACleanup tears down Winsock
 // process-wide for however long it takes the second instance to call
 // WSAStartup again, and ANY other Winsock user active in that window (this
 // test suite's own raw-socket HTTP client included, which never calls
 // WSAStartup itself and relies on some server instance having already done
-// so) sees connect()/socket() fail with no server-side error at all — this
+// so) sees connect()/socket() fail with no server-side error at all - this
 // got much easier to hit once Stop() itself got fast (see the drain-loop
 // fix above), leaving less incidental time for things to settle.
 // Fix: initialize Winsock at most once per process and never tear it down
-// during normal operation — the standard pattern for a library that can't
+// during normal operation - the standard pattern for a library that can't
 // know whether it is the process's only Winsock user. WSACleanup is
 // harmless to skip; Windows reclaims everything at process exit regardless.
 var
@@ -100,9 +99,6 @@ begin
       raise Exception.Create('WSAStartup failed');
 end;
 
-// ---------------------------------------------------------------------------
-// IOCP kernel imports
-// ---------------------------------------------------------------------------
 
 function _IocpCreate(FileH, Existing: THandle; Key: NativeUInt;
   Threads: DWORD): THandle; stdcall;
@@ -147,7 +143,7 @@ function _WsaBind(s: TSocket; addr: PSockAddrIn; addrlen: Integer): Integer; std
 function _WsaListen(s: TSocket; backlog: Integer): Integer; stdcall;
   external 'ws2_32.dll' name 'listen';
 
-// Static mswsock exports — fallback for when WSAIoctl(SIO_GET_EXTENSION_FUNCTION_
+// Static mswsock exports - fallback for when WSAIoctl(SIO_GET_EXTENSION_FUNCTION_
 // POINTER) is rejected (WSAEINVAL) by an intercepting Winsock provider/LSP
 // (some VPN/proxy/security software). AcceptEx and GetAcceptExSockaddrs are
 // exported by name from mswsock.dll, so we can bind them directly.
@@ -181,9 +177,6 @@ type
   TDisconnectExFunc = function(ASocket: TSocket; AOverlapped: POverlapped;
     AFlags: DWORD; AReserved: DWORD): BOOL; stdcall;
 
-// ---------------------------------------------------------------------------
-// IOCP context types
-// ---------------------------------------------------------------------------
 
 const
   CTCP_FASTOPEN = 15;
@@ -272,9 +265,6 @@ type
     Conn: Pointer;
   end;
 
-// ---------------------------------------------------------------------------
-// TIOCPBackend
-// ---------------------------------------------------------------------------
 
 {$IFDEF FPC}
 // FPC: IOCP workers are TThread subclasses, not CreateAnonymousThread. Threads
@@ -395,7 +385,7 @@ begin
       closesocket(LAcceptSocket);
       LCtx^.AcceptSocket := INVALID_SOCKET;
       // #223: AcceptEx can fail transiently (observed right after another
-      // Winsock user in the same process tears down/reinitializes sockets —
+      // Winsock user in the same process tears down/reinitializes sockets -
       // e.g. two TPoseidonNativeServer instances cycling in one test
       // process). Previously this abandoned the slot forever with no retry
       // and no log; losing even a few of the CAcceptPoolSize slots this way
@@ -435,7 +425,7 @@ begin
   setsockopt(FListenSocket, SOL_SOCKET, CSO_EXCLUSIVEADDRUSE,
     PAnsiChar(@LOne), SizeOf(LOne));
 
-  // TCP_FASTOPEN (RFC 7413) — opt-in; Windows 10 1607+
+  // TCP_FASTOPEN (RFC 7413) - opt-in; Windows 10 1607+
   if AFastOpen then
     setsockopt(FListenSocket, IPPROTO_TCP, CTCP_FASTOPEN,
       PAnsiChar(@LOne), SizeOf(LOne));
@@ -487,7 +477,7 @@ end;
 
 procedure TIOCPBackend.SetInlineDispatch(AEnabled: Boolean);
 begin
-  // No submission batching in the IOCP backend — no-op.
+  // No submission batching in the IOCP backend - no-op.
 end;
 
 procedure TIOCPBackend.StopAccept;
@@ -533,7 +523,7 @@ begin
     CloseHandle(FIocp);
     FIocp := 0;
   end;
-  // #223: deliberately no WSACleanup — see _WinsockAcquire comment above.
+  // #223: deliberately no WSACleanup - see _WinsockAcquire comment above.
 end;
 
 procedure TIOCPBackend.RegisterConn(AConn: Pointer);
@@ -542,24 +532,24 @@ var
   LMode: u_long;
 begin
   // #203: a socket recycled via DisconnectEx(CTF_REUSE_SOCKET) is STILL
-  // associated with this IOCP from its previous connection — DisconnectEx does
+  // associated with this IOCP from its previous connection - DisconnectEx does
   // not undo the association. CreateIoCompletionPort then returns 0 with
   // ERROR_INVALID_PARAMETER ("handle already has a completion port"). That is
   // NOT a failure: the association we need is already in place. Re-raising it
   // (as before) closed every reused connection with a bare FIN and no response,
-  // which the client saw as a dropped request — the Windows-only connection-
+  // which the client saw as a dropped request - the Windows-only connection-
   // churn flake. Only a genuinely different error is fatal here.
   if _IocpCreate(THandle(LConn.Socket), FIocp, 0, 0) = 0 then
     if GetLastError <> ERROR_INVALID_PARAMETER then
       raise Exception.Create('IOCP associate failed: ' + IntToStr(GetLastError));
   // Non-blocking: the readiness recv in _OnRecvReady MUST NOT block a worker
   // thread if the zero-byte-recv readiness was spurious/raced (data already
-  // consumed) — a blocking recv there would pin the worker and can hang the
+  // consumed) - a blocking recv there would pin the worker and can hang the
   // whole pool. Non-blocking makes it return WSAEWOULDBLOCK, which _OnRecvReady
   // handles by re-arming instead of blocking.
   LMode := 1;
   ioctlsocket(LConn.Socket, Integer(FIONBIO), LMode);
-  // FILE_SKIP_COMPLETION_PORT_ON_SUCCESS — synchronous completion
+  // FILE_SKIP_COMPLETION_PORT_ON_SUCCESS - synchronous completion
   // is inline on the calling thread, avoids kernel-to-user transition
   _SetFileCompletionNotificationModes(THandle(LConn.Socket),
     FILE_SKIP_COMPLETION_PORT_ON_SUCCESS or FILE_SKIP_SET_EVENT_ON_HANDLE);
@@ -577,7 +567,7 @@ begin
   FillChar(LCtx^, SizeOf(TRecvZeroCtx), 0);
   LCtx^.Action := iaRecvZero;
   LCtx^.Conn := AConn;
-  // WsaBuf already zeroed — len=0, buf=nil (zero-byte recv)
+  // WsaBuf already zeroed - len=0, buf=nil (zero-byte recv)
   LFlags := 0;
   LBytes := 0;
 
@@ -587,7 +577,7 @@ begin
 
   if LRes = 0 then
   begin
-    // FILE_SKIP_COMPLETION_PORT_ON_SUCCESS — data already available
+    // FILE_SKIP_COMPLETION_PORT_ON_SUCCESS - data already available
     Dispose(LCtx);
     _OnRecvReady(AConn);
     LConn.Release;
@@ -610,7 +600,7 @@ begin
   if LRecved > 0 then
     FCallbacks.OnRecv(LConn, @LBuf[0], Cardinal(LRecved))
   else if (LRecved = SOCKET_ERROR) and (WSAGetLastError = WSAEWOULDBLOCK) then
-    // Spurious/raced readiness — no data yet. Re-arm the zero-byte recv instead
+    // Spurious/raced readiness - no data yet. Re-arm the zero-byte recv instead
     // of treating it as an error (which would drop a live keep-alive connection).
     // The socket is non-blocking (RegisterConn), so recv never blocks here.
     PostRecv(AConn)
@@ -769,7 +759,7 @@ begin
   LSock := LConn.Socket;
   LConn.Socket := INVALID_SOCKET;
 
-  // TCP half-close — FIN before RST so the client receives the last bytes
+  // TCP half-close - FIN before RST so the client receives the last bytes
   shutdown(LSock, SD_SEND);
 
   if FDisconnectEx <> nil then
@@ -784,12 +774,12 @@ begin
     begin
       if WSAGetLastError = WSA_IO_PENDING then
         Exit;  // will complete via IOCP
-      // DisconnectEx failed — fall through to closesocket
+      // DisconnectEx failed - fall through to closesocket
       Dispose(LCtx);
     end
     else
     begin
-      // Completed synchronously — FILE_SKIP_COMPLETION_PORT_ON_SUCCESS
+      // Completed synchronously - FILE_SKIP_COMPLETION_PORT_ON_SUCCESS
       // means no IOCP completion will arrive; handle inline.
       if not FSocketPool.AddRecycled(LCtx^.Socket) then
         closesocket(LCtx^.Socket);
@@ -801,9 +791,7 @@ begin
   closesocket(LSock);
 end;
 
-// ---------------------------------------------------------------------------
 // Worker loop
-// ---------------------------------------------------------------------------
 
 procedure TIOCPBackend._WorkerLoop;
 var
@@ -888,7 +876,7 @@ begin
           setsockopt(LAcceptCtx^.AcceptSocket, SOL_SOCKET, SO_KEEPALIVE,
             PAnsiChar(@LOne), SizeOf(LOne));
 
-          // SIO_KEEPALIVE_VALS — probe after 30s idle, retry every 5s
+          // SIO_KEEPALIVE_VALS - probe after 30s idle, retry every 5s
           LKA.OnOff := 1;
           LKA.KeepAliveTime := CKeepAliveTime;
           LKA.KeepAliveInterval := CKeepAliveInterval;
@@ -993,7 +981,7 @@ begin
             Inc(LSendCtx^.SentBytes, Integer(LBytes));
             if LSendCtx^.SentBytes < LSendCtx^.ActualLen then
             begin
-              // Partial send — resubmit for remaining bytes
+              // Partial send - resubmit for remaining bytes
               LSendCtx^.WsaBuf.buf := @LSendCtx^.SendBuf[LSendCtx^.SentBytes];
               LSendCtx^.WsaBuf.len := ULONG(LSendCtx^.ActualLen - LSendCtx^.SentBytes);
               FillChar(LSendCtx^.Ovl, SizeOf(TOverlapped), 0);
@@ -1001,7 +989,7 @@ begin
                 PWSAOverlapped(@LSendCtx^.Ovl), nil);
               if LRes = 0 then
               begin
-                // Sync completion of remainder — will come back as IOCP completion
+                // Sync completion of remainder - will come back as IOCP completion
                 // (unless FILE_SKIP_COMPLETION_PORT_ON_SUCCESS, handled next iteration)
               end
               else if WSAGetLastError <> WSA_IO_PENDING then
@@ -1038,7 +1026,7 @@ begin
     if LSawShutdown then Exit;
   end;
   finally
-    // L4: drenar TLC do worker no fim do loop — evita vazamento em graceful reload
+    // L4: drenar TLC do worker no fim do loop - evita vazamento em graceful reload
     TBufferPool.FlushThreadCache;
   end;
 end;

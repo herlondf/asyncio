@@ -1,4 +1,4 @@
-unit Poseidon.Tests.ResponseBuilder;
+﻿unit Poseidon.Tests.ResponseBuilder;
 
 // DUnitX unit tests for Poseidon.Net.ResponseBuilder.BuildHTTPResponse.
 //
@@ -70,7 +70,7 @@ type
     [Test] procedure DefaultErrorBody_IsValidJSON;
     [Test] procedure Response_EndsWithDoubleCRLF_BeforeBody;
 
-    // Edge cases — Fase 3
+    // Edge cases - Fase 3
     [Test] procedure Status_204_NoContentStatusLine;
     [Test] procedure Status_301_WithLocationHeader;
     [Test] procedure LargeBody_ContentLengthCorrect;
@@ -516,7 +516,7 @@ end;
 
 // The invariant these tests exist for: the builder sizes the buffer with
 // _CalcTotal and then fills it with _BuildCore. If the two ever disagree and
-// the count UNDER-estimates, _BuildCore writes past the end of the block —
+// the count UNDER-estimates, _BuildCore writes past the end of the block -
 // which on Linux/glibc surfaces as `corrupted size vs. prev_size` or
 // `malloc(): unaligned tcache chunk detected`, far from the real cause. The
 // existing suite checks the response CONTENT; nothing checked the SIZE.
@@ -532,7 +532,7 @@ begin
     AExtra, ASecure, ABanner, LActual);
   Assert.IsTrue(LActual >= 0, AWhat + ': comprimento escrito negativo');
   Assert.IsTrue(LActual <= Length(LBuf),
-    Format('%s: escreveu %d bytes num buffer de %d — OVERFLOW',
+    Format('%s: escreveu %d bytes num buffer de %d - OVERFLOW',
       [AWhat, LActual, Length(LBuf)]));
 end;
 
@@ -584,7 +584,7 @@ var
   I: Integer;
   LSizes: TArray<Integer>;
 begin
-  // O buffer vem do pool, entao pode ser MAIOR que o necessario — mas nunca
+  // O buffer vem do pool, entao pode ser MAIOR que o necessario - mas nunca
   // menor que o escrito. Tamanhos escolhidos em torno das fronteiras de tier
   // (8 KB / 64 KB / 512 KB).
   LSizes := TArray<Integer>.Create(0, 1, 8191, 8192, 8193, 65535, 65536, 65537);
@@ -597,7 +597,7 @@ begin
       nil, True, 'Poseidon', LActual);
     try
       Assert.IsTrue(LActual <= Length(LBuf),
-        Format('corpo=%d: escreveu %d num buffer de %d — OVERFLOW',
+        Format('corpo=%d: escreveu %d num buffer de %d - OVERFLOW',
           [LSizes[I], LActual, Length(LBuf)]));
       Assert.IsTrue(LActual > LSizes[I],
         Format('corpo=%d: total escrito (%d) tem de incluir cabecalho + corpo',
@@ -612,7 +612,7 @@ procedure TResponseBuilderBoundsTests.Headers_NonAsciiExtraValue_StaysInBounds;
 var
   LExtra: TArray<TPair<string,string>>;
 begin
-  // O tamanho e calculado a partir de Length(string) — contagem de CHARS — e a
+  // O tamanho e calculado a partir de Length(string) - contagem de CHARS - e a
   // escrita usa TEncoding.ASCII, que emite 1 byte por char (nao-ASCII vira
   // '?'). Se algum dia virar UTF-8, um char acentuado passaria a ocupar 2 bytes
   // e o calculo ficaria curto. Este teste tranca esse contrato.

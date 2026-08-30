@@ -1,4 +1,4 @@
-unit Poseidon.Net.Interfaces;
+﻿unit Poseidon.Net.Interfaces;
 
 // Dependency-Inversion contracts for TPoseidonNativeServer.
 //
@@ -7,12 +7,12 @@ unit Poseidon.Net.Interfaces;
 // by the real class; passing nil to the server constructor selects the default.
 //
 // Interfaces:
-//   IBufferPool   — acquire/release pooled TBytes buffers
-//   ISSLProvider  — create/configure SSL_CTX and SSL objects
+//   IBufferPool   - acquire/release pooled TBytes buffers
+//   ISSLProvider  - create/configure SSL_CTX and SSL objects
 //
 // Default implementations (returned by Default* functions):
-//   TDefaultBufferPool   — wraps TBufferPool class methods
-//   TDefaultSSLProvider  — wraps TPoseidonSSL class methods
+//   TDefaultBufferPool   - wraps TBufferPool class methods
+//   TDefaultSSLProvider  - wraps TPoseidonSSL class methods
 
 interface
 
@@ -26,9 +26,7 @@ uses
   Poseidon.Net.Types;
 
 type
-  // -----------------------------------------------------------------------
-  // IBufferPool — acquire / release memory-pooled byte arrays
-  // -----------------------------------------------------------------------
+  // IBufferPool - acquire / release memory-pooled byte arrays
   IBufferPool = interface
     ['{A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D}']
     function  Acquire(ASize: Integer = 0): TBytes;
@@ -37,9 +35,7 @@ type
     procedure Release(var ABuf: TBytes);
   end;
 
-  // -----------------------------------------------------------------------
-  // ISSLProvider — SSL_CTX and SSL object lifecycle / configuration
-  // -----------------------------------------------------------------------
+  // ISSLProvider - SSL_CTX and SSL object lifecycle / configuration
   ISSLProvider = interface
     ['{C3D4E5F6-A7B8-4C5D-0E1F-2A3B4C5D6E7F}']
     function  IsAvailable: Boolean;
@@ -88,9 +84,7 @@ type
     function  GetServername(ASSL: Pointer): string;
   end;
 
-// ---------------------------------------------------------------------------
 // Default-implementation factory functions (singletons)
-// ---------------------------------------------------------------------------
 
 function DefaultBufferPool: IBufferPool;
 function DefaultSSLProvider: ISSLProvider;
@@ -106,9 +100,7 @@ uses
   Poseidon.Net.Pool.Buffer,
   Poseidon.Net.SSL;
 
-// ===========================================================================
 // TDefaultBufferPool
-// ===========================================================================
 
 type
   TDefaultBufferPool = class(TInterfacedObject, IBufferPool)
@@ -127,9 +119,7 @@ begin
   TBufferPool.Release(ABuf);
 end;
 
-// ===========================================================================
 // TDefaultSSLProvider
-// ===========================================================================
 
 type
   TDefaultSSLProvider = class(TInterfacedObject, ISSLProvider)
@@ -299,10 +289,8 @@ begin
   Result := TPoseidonSSL.SSL_GetServername(ASSL);
 end;
 
-// ===========================================================================
-// Singleton factories (lazy-init, not thread-safe at init time — acceptable
+// Singleton factories (lazy-init, not thread-safe at init time - acceptable
 // since the first call is typically from the main thread at server startup)
-// ===========================================================================
 
 var
   GBufferPool: IBufferPool;

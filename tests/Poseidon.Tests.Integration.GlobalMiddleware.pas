@@ -1,7 +1,7 @@
-unit Poseidon.Tests.Integration.GlobalMiddleware;
+﻿unit Poseidon.Tests.Integration.GlobalMiddleware;
 
 // Integration test for the global-middleware dispatch fix: a global middleware
-// (App.Use) that serves its own path must run EVEN WHEN no route matches — the
+// (App.Use) that serves its own path must run EVEN WHEN no route matches - the
 // pattern behind MetricsMiddleware / StaticMiddleware / CORS. Before the fix the
 // router returned 404 before the global chain ran, so those middlewares were
 // silently dead on their own paths. A truly-unhandled path must still 404.

@@ -1,6 +1,6 @@
-unit Poseidon.Net.WebSocket.Manager;
+﻿unit Poseidon.Net.WebSocket.Manager;
 
-// TWebSocketManager — handler registration, upgrade handshake, frame dispatch.
+// TWebSocketManager - handler registration, upgrade handshake, frame dispatch.
 //
 // Extracted from TPoseidonNativeServer. Owns FWSHandlers + FWSLock.
 // Transport operations are provided via constructor-injected callbacks.
@@ -25,7 +25,7 @@ uses
   Poseidon.Net.WebSocket;
 
 type
-  // Transport callbacks — injected by the server
+  // Transport callbacks - injected by the server
   TWSTransportSend  = reference to procedure(AConn: Pointer; const AData: TBytes);
   TWSTransportClose = reference to procedure(AConn: Pointer);
   TWSTransportRecv  = reference to procedure(AConn: Pointer);
@@ -87,9 +87,9 @@ const
   CCloseProtocolError = 1002;
   CCloseInvalidData   = 1007;  // e.g. text frame with malformed UTF-8
   CCloseMessageTooBig = 1009;
-  // RFC 6455 §5.5 — control frames MUST have payload <= 125 bytes and FIN=1
+  // RFC 6455 §5.5 - control frames MUST have payload <= 125 bytes and FIN=1
   CMaxControlPayload  = 125;
-  // RFC 6455 §4.1/§4.4 — only version 13 is defined; mismatch → 426 Upgrade
+  // RFC 6455 §4.1/§4.4 - only version 13 is defined; mismatch → 426 Upgrade
   // Required with a Sec-WebSocket-Version header advertising the supported
   // version.
   CWSVersion          = '13';
@@ -272,7 +272,7 @@ begin
        (Pos('permessage-deflate', LowerCase(AReq.Headers[I].Value)) > 0) then
       LDeflate := True;
   end;
-  // RFC 6455 §4.4 — if Sec-WebSocket-Version is missing or not 13, respond
+  // RFC 6455 §4.4 - if Sec-WebSocket-Version is missing or not 13, respond
   // 426 Upgrade Required and advertise the supported version. Do NOT open
   // the WebSocket session.
   if LVersion <> CWSVersion then
@@ -297,7 +297,7 @@ begin
   LConn.WSDeflate := LDeflate;
   LConn.KeepAlive := True;
   LConn.AccumLen := 0;
-  // Defensive — the connection pointer may have been reused after a prior
+  // Defensive - the connection pointer may have been reused after a prior
   // socket close. Drop any lingering fragmentation state before we start
   // reading frames on this session.
   ClearFragState(AConn);
@@ -319,7 +319,7 @@ begin
   FRecv(AConn);
 end;
 
-// RFC 6455 §7.4.1 — close codes that a peer is allowed to send in a CLOSE body.
+// RFC 6455 §7.4.1 - close codes that a peer is allowed to send in a CLOSE body.
 function IsValidCloseCode(ACode: Word): Boolean;
 begin
   case ACode of
@@ -360,7 +360,7 @@ begin
   begin
     Inc(LTotal, LConsumed);
 
-    // RFC 6455 §5.3 — every frame sent from client to server MUST be masked.
+    // RFC 6455 §5.3 - every frame sent from client to server MUST be masked.
     // An unmasked frame is a protocol error; server MUST close with 1002.
     if not LFrame.Masked then
     begin
@@ -375,7 +375,7 @@ begin
     LIsReserved   := ((LFrame.Opcode >= $3) and (LFrame.Opcode <= $7))
                   or ((LFrame.Opcode >= $B) and (LFrame.Opcode <= $F));
 
-    // RFC 6455 §5.2 — reserved opcodes MUST cause a fail.
+    // RFC 6455 §5.2 - reserved opcodes MUST cause a fail.
     if LIsReserved then
     begin
       FailProtocol(AConn, CCloseProtocolError);
@@ -383,7 +383,7 @@ begin
       Exit;
     end;
 
-    // RFC 6455 §5.2 — RSV2/RSV3 must be 0 (no negotiated extension defines them).
+    // RFC 6455 §5.2 - RSV2/RSV3 must be 0 (no negotiated extension defines them).
     if LFrame.RSV2 or LFrame.RSV3 then
     begin
       FailProtocol(AConn, CCloseProtocolError);
@@ -391,7 +391,7 @@ begin
       Exit;
     end;
 
-    // RFC 6455 §5.5 — control frames MUST be FIN=1 with payload <= 125, and per
+    // RFC 6455 §5.5 - control frames MUST be FIN=1 with payload <= 125, and per
     // RFC 7692 §6 compression (RSV1) applies to data frames only.
     if LIsControl then
     begin
@@ -415,9 +415,7 @@ begin
       Exit;
     end;
 
-    // ------------------------------------------------------------------
-    // Control frames — processed INLINE, must NOT touch fragmentation state.
-    // ------------------------------------------------------------------
+    // Control frames - processed INLINE, must NOT touch fragmentation state.
     if LIsControl then
     begin
       case LFrame.Opcode of
@@ -427,7 +425,7 @@ begin
           FSend(AConn, LOut);
         end;
         OPCODE_PONG:
-          ; // Unsolicited pong — allowed; ignore.
+          ; // Unsolicited pong - allowed; ignore.
         OPCODE_CLOSE:
         begin
           // RFC 6455 §5.5.1: the CLOSE body is empty, or a 2-byte close code
@@ -462,27 +460,25 @@ begin
         Result := False;
         Exit;
       end;
-      // Control frame handled — pick up the next frame without touching
+      // Control frame handled - pick up the next frame without touching
       // the data-message buffer.
       Continue;
     end;
 
-    // ------------------------------------------------------------------
-    // Data frames — TEXT / BINARY / CONTINUATION (with fragmentation).
-    // ------------------------------------------------------------------
+    // Data frames - TEXT / BINARY / CONTINUATION (with fragmentation).
     LState := GetFragState(AConn);
 
     if LIsDataOpcode then
     begin
       // Starting a new data message. A previous message MUST NOT be in
-      // progress (RFC 6455 §5.4 — nested text/binary is a protocol error).
+      // progress (RFC 6455 §5.4 - nested text/binary is a protocol error).
       if LState.Active then
       begin
         FailProtocol(AConn, CCloseProtocolError);
         Result := False;
         Exit;
       end;
-      // RFC 6455 §5.2 — a peer MUST NOT set RSV1 unless an extension has
+      // RFC 6455 §5.2 - a peer MUST NOT set RSV1 unless an extension has
       // negotiated its meaning. If deflate was not negotiated on this
       // session, RSV1 is a protocol error.
       if LFrame.RSV1 and (not LConn.WSDeflate) then
@@ -493,7 +489,7 @@ begin
       end;
       if LFrame.FinFlag then
       begin
-        // Single-frame message — bounded inflate + optional UTF-8 check.
+        // Single-frame message - bounded inflate + optional UTF-8 check.
         if LConn.WSDeflate and LFrame.RSV1 then
         begin
           if not TWebSocketUtils.TryApplyRXDeflate(LFrame) then
@@ -503,7 +499,7 @@ begin
             Exit;
           end;
         end;
-        // The configured MaxWSFrameSize must also bound the DECOMPRESSED size —
+        // The configured MaxWSFrameSize must also bound the DECOMPRESSED size -
         // the guards above only checked the on-wire (compressed) length.
         if (FMaxWSFrameSize > 0)
            and (Int64(Length(LFrame.Payload)) > FMaxWSFrameSize) then
@@ -534,7 +530,7 @@ begin
       else
       begin
         // Open a fragmented message. Keep the payload STILL COMPRESSED
-        // if RSV1 was set — RFC 7692 says the compression frame applies
+        // if RSV1 was set - RFC 7692 says the compression frame applies
         // to the assembled message, so we inflate only once on the final
         // fragment.
         LState.Active := True;
@@ -553,7 +549,7 @@ begin
         Result := False;
         Exit;
       end;
-      // RFC 7692 §7.2.3.1 — RSV1 is only valid on the first frame of a
+      // RFC 7692 §7.2.3.1 - RSV1 is only valid on the first frame of a
       // permessage-deflate message; setting it on a continuation is a
       // protocol violation.
       if LFrame.RSV1 then
@@ -627,13 +623,13 @@ begin
       end
       else
       begin
-        // Still assembling — persist the growing buffer.
+        // Still assembling - persist the growing buffer.
         SetFragState(AConn, LState);
       end;
     end
     else
     begin
-      // Non-control, non-continuation, non-text/binary — unreachable given
+      // Non-control, non-continuation, non-text/binary - unreachable given
       // the reserved-opcode check above. Guard anyway.
       FailProtocol(AConn, CCloseProtocolError);
       Result := False;

@@ -1,4 +1,4 @@
-unit Poseidon.Net.HTTP2;
+﻿unit Poseidon.Net.HTTP2;
 
 // HTTP/2 (RFC 7540) + HPACK (RFC 7541) implementation for the Poseidon framework.
 // One TH2Conn instance per connection, driven by TPoseidonNativeServer._ProcessRecv.
@@ -31,9 +31,6 @@ uses
   Poseidon.Net.HTTP2.HPACK,
   Poseidon.Net.Types;
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
 
 type
   TH2RequestData = record
@@ -66,7 +63,7 @@ type
     BodyLen:         Integer;
     EndStream:       Boolean;
     HeadersComplete: Boolean;
-    // RFC 7540 §8.1.2.6 — a declared content-length must equal the sum of DATA
+    // RFC 7540 §8.1.2.6 - a declared content-length must equal the sum of DATA
     // payloads. HasContentLength distinguishes "0" from "absent".
     HasContentLength: Boolean;
     ContentLength:    Int64;
@@ -98,13 +95,11 @@ type
     // HPACK codec (owns dynamic table, static table ref, Huffman tree ref)
     FHpack: TH2HpackCodec;
 
-    // Connection state
     FPrefaceReceived: Boolean;
     FSettingsSent:    Boolean;
     FGoAwaySent:      Boolean;   // WE sent GOAWAY -> suppress our sends
     FGoAwayReceived:  Boolean;   // client sent GOAWAY -> let in-flight drain
 
-    // Frame reassembly accumulator
     FFrameBuf: TBytes;
     FFrameLen: Integer;
 
@@ -113,15 +108,13 @@ type
     FContinHeaders:    TBytes;
     FContinHeadersLen: Integer;
 
-    // Streams
     FStreams:      TDictionary<Cardinal, TH2Stream>;
     FLastStreamID: Cardinal;
 
-    // Peer settings
     FPeerMaxFrameSize: Integer;
     FPeerInitWinSize: Integer;
 
-    // Server's own MAX_FRAME_SIZE — the value the server ANNOUNCED to the peer
+    // Server's own MAX_FRAME_SIZE - the value the server ANNOUNCED to the peer
     // in SETTINGS (what the peer is allowed to send us). Must be validated
     // against incoming frame sizes at the frame header, BEFORE allocating
     // payload buffers. Distinct from FPeerMaxFrameSize (max size WE may send).
@@ -141,7 +134,7 @@ type
     FRstWindowStart: Int64;   // TThread.GetTickCount64 at window start
 
     // Control-frame flood defense (CVE-2019-9512 PING, -9515 SETTINGS, -9518
-    // empty-frame): rolling window counter of "unproductive" frames — ones that
+    // empty-frame): rolling window counter of "unproductive" frames - ones that
     // make the server emit a reply (PING->PONG, SETTINGS->ACK) or do no work
     // (empty DATA/HEADERS). Exceeding the window bound -> GOAWAY ENHANCE_YOUR_CALM.
     FFloodCount:       Int64;
@@ -151,7 +144,6 @@ type
     FNextPushStreamID: Cardinal;  // server-initiated streams are even (2, 4, 6, …)
     FClientEnablePush: Boolean;   // True until client sends ENABLE_PUSH=0
 
-    // Server-side SETTINGS values (sent to client)
     FMaxConcurrentStreams: Cardinal;
     FInitialWindowSize:    Cardinal;
 
@@ -159,9 +151,6 @@ type
     FConnSendWindow: Integer;  // peer's connection-level window (we decrement when sending)
     FConnRecvWindow: Integer;  // our connection-level receive window (peer's view)
 
-    // -----------------------------------------------------------------------
-    // Frame processing
-    // -----------------------------------------------------------------------
     procedure _ProcessFrame(AType, AFlags: Byte; AStreamID: Cardinal;
       APayload: PByte; APayLen: Integer);
     procedure _HandleSettings(AFlags: Byte; APayload: PByte; APayLen: Integer);
@@ -180,9 +169,6 @@ type
     procedure _DecodeRequestHeaders(AStream: TH2Stream;
       APayload: PByte; APayLen: Integer);
 
-    // -----------------------------------------------------------------------
-    // Frame sending
-    // -----------------------------------------------------------------------
     procedure _SendRaw(const AData: TBytes);
     procedure _SendFrame(AType, AFlags: Byte; AStreamID: Cardinal;
       APayload: PByte; APayLen: Integer);
@@ -195,7 +181,6 @@ type
       const APush: TPoseidonPushResource;
       const AScheme, AAuthority: string);
 
-    // Flow control helpers
     procedure _SendWindowUpdate(AStreamID: Cardinal; AIncrement: Integer);
     procedure _DrainPendingStream(AStream: TH2Stream);
     procedure _CloseStreamAfterSend(AStream: TH2Stream);
@@ -241,9 +226,7 @@ type
     property GoAwaySent: Boolean read FGoAwaySent;
   end;
 
-// ---------------------------------------------------------------------------
 // Constants
-// ---------------------------------------------------------------------------
 
 const
   H2_FRAME_DATA          = 0;
@@ -323,25 +306,21 @@ const
   // idle timeouts.
   CFlowControlWaitTimeoutMs = 30 * 1000;
 
-// Client connection preface — RFC 7540 §3.5 (24 bytes, no null terminator)
+// Client connection preface - RFC 7540 §3.5 (24 bytes, no null terminator)
 const
   H2_PREFACE_BYTES: array[0..23] of Byte = (
     $50,$52,$49,$20,$2A,$20,$48,$54,$54,$50,$2F,$32,$2E,$30,$0D,$0A,
     $0D,$0A,$53,$4D,$0D,$0A,$0D,$0A);
   // "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 
-// ===========================================================================
 // TH2Stream
-// ===========================================================================
 
 destructor TH2Stream.Destroy;
 begin
   inherited Destroy;
 end;
 
-// ===========================================================================
-// TH2Conn — constructor / destructor
-// ===========================================================================
+// TH2Conn - constructor / destructor
 
 constructor TH2Conn.Create(AConn: Pointer;
   ASendProc: TH2SendProc; ACloseProc: TH2CloseProc;
@@ -392,7 +371,7 @@ begin
   FMaxConcurrentStreams := AMaxConcurrentStreams;
   FInitialWindowSize    := AInitialWindowSize;
 
-  // Flow control — start at RFC 7540 default (65535); updated by peer SETTINGS
+  // Flow control - start at RFC 7540 default (65535); updated by peer SETTINGS
   FConnSendWindow := 65535;
   FConnRecvWindow := 65535;
 end;
@@ -408,9 +387,7 @@ begin
   inherited Destroy;
 end;
 
-// ===========================================================================
 // Raw send helpers
-// ===========================================================================
 
 procedure TH2Conn._SendRaw(const AData: TBytes);
 begin
@@ -444,9 +421,7 @@ begin
   _SendRaw(LFrame);
 end;
 
-// ===========================================================================
 // GOAWAY
-// ===========================================================================
 
 procedure TH2Conn._GoAway(ALastStreamID: Cardinal; AErr: Cardinal);
 var
@@ -473,9 +448,7 @@ begin
     FCloseProc(FConn);
 end;
 
-// ===========================================================================
 // Flow control helpers
-// ===========================================================================
 
 procedure TH2Conn._SendRstRefusedStream(AStreamID: Cardinal);
 var
@@ -514,7 +487,7 @@ end;
 function TH2Conn._RegisterUnproductiveAndCheckFlood: Boolean;
 // Rolling-window counter of unproductive control/empty frames (CVE-2019-9512/
 // 9515/9518). Returns True when the peer exceeded CFrameFloodMax inside
-// CFrameFloodWindowMs — caller responds with GOAWAY ENHANCE_YOUR_CALM.
+// CFrameFloodWindowMs - caller responds with GOAWAY ENHANCE_YOUR_CALM.
 var
   LNow:     Int64;
   LElapsed: Int64;
@@ -655,9 +628,7 @@ begin
   end;
 end;
 
-// ===========================================================================
 // SendInitialSettings
-// ===========================================================================
 
 procedure TH2Conn.SendInitialSettings;
 var
@@ -688,9 +659,7 @@ begin
   FSettingsSent := True;
 end;
 
-// ===========================================================================
-// ProcessData — main entry point called by the server on new bytes
-// ===========================================================================
+// ProcessData - main entry point called by the server on new bytes
 
 procedure TH2Conn.ProcessData(ABuf: PByte; ALen: Integer);
 var
@@ -717,7 +686,6 @@ begin
     Inc(FFrameLen, ALen);
   end;
 
-  // Check preface
   if not FPrefaceReceived then
   begin
     if FFrameLen < H2_PREFACE_LEN then Exit; // need more data
@@ -727,15 +695,12 @@ begin
       Exit;
     end;
     FPrefaceReceived := True;
-    // Remove preface from buffer
     Move(FFrameBuf[H2_PREFACE_LEN], FFrameBuf[0], FFrameLen - H2_PREFACE_LEN);
     Dec(FFrameLen, H2_PREFACE_LEN);
-    // Send our settings immediately
     if not FSettingsSent then
       SendInitialSettings;
   end;
 
-  // Parse frames
   while FFrameLen >= 9 do
   begin
     LFBuf   := @FFrameBuf[0];
@@ -743,7 +708,7 @@ begin
                (Integer(LFBuf[1]) shl  8) or
                 Integer(LFBuf[2]);
 
-    // RFC 7540 §4.2 — validate against OUR advertised SETTINGS_MAX_FRAME_SIZE
+    // RFC 7540 §4.2 - validate against OUR advertised SETTINGS_MAX_FRAME_SIZE
     // BEFORE waiting for the full payload. Rejecting here prevents an attacker
     // from forcing us to buffer an unbounded payload just to reject it later.
     if LPayLen > FMaxFrameSize then
@@ -776,7 +741,6 @@ begin
 
     if FGoAwaySent then Exit;
 
-    // Advance buffer
     LNeeded := FFrameLen - (9 + LPayLen);
     if LNeeded > 0 then
       Move(FFrameBuf[9 + LPayLen], FFrameBuf[0], LNeeded);
@@ -784,14 +748,12 @@ begin
   end;
 end;
 
-// ===========================================================================
-// _ProcessFrame — dispatch by type
-// ===========================================================================
+// _ProcessFrame - dispatch by type
 
 procedure TH2Conn._ProcessFrame(AType, AFlags: Byte; AStreamID: Cardinal;
   APayload: PByte; APayLen: Integer);
 begin
-  // RFC 7540 §4.2 — reject frames whose payload exceeds OUR advertised
+  // RFC 7540 §4.2 - reject frames whose payload exceeds OUR advertised
   // SETTINGS_MAX_FRAME_SIZE. Also validated at the frame header in ProcessData
   // (earlier, cheaper); repeated here as defence-in-depth for callers that
   // bypass ProcessData (e.g. future direct dispatch paths).
@@ -801,7 +763,7 @@ begin
     Exit;
   end;
 
-  // RFC 7540 §5.1 — a stream in the "idle" state (a client id above the highest
+  // RFC 7540 §5.1 - a stream in the "idle" state (a client id above the highest
   // we have opened, never seen before) may only receive HEADERS or PRIORITY.
   // DATA / RST_STREAM / WINDOW_UPDATE on such a stream is a connection-level
   // PROTOCOL_ERROR.
@@ -823,7 +785,7 @@ begin
       _HandlePriority(AStreamID, APayload, APayLen);
     H2_FRAME_RST_STREAM:
       begin
-        // RFC 7540 §6.4 — RST_STREAM MUST identify a stream (id 0x0 = conn error).
+        // RFC 7540 §6.4 - RST_STREAM MUST identify a stream (id 0x0 = conn error).
         if AStreamID = 0 then
           _GoAway(FLastStreamID, H2_ERR_PROTOCOL_ERROR)
         else
@@ -831,7 +793,7 @@ begin
       end;
     H2_FRAME_SETTINGS:
       begin
-        // RFC 7540 §6.5 — SETTINGS is a connection frame; a non-zero stream id
+        // RFC 7540 §6.5 - SETTINGS is a connection frame; a non-zero stream id
         // is a connection-level PROTOCOL_ERROR.
         if AStreamID <> 0 then
           _GoAway(FLastStreamID, H2_ERR_PROTOCOL_ERROR)
@@ -842,7 +804,7 @@ begin
       _GoAway(FLastStreamID, H2_ERR_PROTOCOL_ERROR); // client must not send push-promise
     H2_FRAME_PING:
       begin
-        // RFC 7540 §6.7 — PING is a connection frame; non-zero stream id = error.
+        // RFC 7540 §6.7 - PING is a connection frame; non-zero stream id = error.
         if AStreamID <> 0 then
           _GoAway(FLastStreamID, H2_ERR_PROTOCOL_ERROR)
         else
@@ -850,7 +812,7 @@ begin
       end;
     H2_FRAME_GOAWAY:
       begin
-        // RFC 7540 §6.8 — GOAWAY is a connection frame; non-zero stream id = error.
+        // RFC 7540 §6.8 - GOAWAY is a connection frame; non-zero stream id = error.
         if AStreamID <> 0 then
           _GoAway(FLastStreamID, H2_ERR_PROTOCOL_ERROR)
         else
@@ -864,9 +826,7 @@ begin
   end;
 end;
 
-// ===========================================================================
 // _HandleSettings
-// ===========================================================================
 
 procedure TH2Conn._HandleSettings(AFlags: Byte; APayload: PByte; APayLen: Integer);
 var
@@ -878,8 +838,8 @@ var
   LPendingList: TList<TH2Stream>;
   LStream:      TH2Stream;
 begin
-  // ACK — the peer acknowledged OUR settings. RFC 7540 §6.5: a SETTINGS frame
-  // with the ACK flag set MUST carry an empty payload — otherwise FRAME_SIZE_ERROR.
+  // ACK - the peer acknowledged OUR settings. RFC 7540 §6.5: a SETTINGS frame
+  // with the ACK flag set MUST carry an empty payload - otherwise FRAME_SIZE_ERROR.
   if (AFlags and H2_FLAG_ACK) <> 0 then
   begin
     if APayLen <> 0 then
@@ -916,7 +876,7 @@ begin
         FHpack.MaxDynTableSize := LVal;
       H2_SETTINGS_ENABLE_PUSH:
         begin
-          // RFC 7540 §6.5.2 — SETTINGS_ENABLE_PUSH accepts only 0 or 1; any
+          // RFC 7540 §6.5.2 - SETTINGS_ENABLE_PUSH accepts only 0 or 1; any
           // other value is a connection-level PROTOCOL_ERROR.
           if LVal > 1 then
           begin
@@ -936,7 +896,7 @@ begin
         end;
       H2_SETTINGS_INITIAL_WINDOW_SIZE:
         begin
-          // RFC 7540 §6.9.2 — update existing stream send windows by the delta
+          // RFC 7540 §6.9.2 - update existing stream send windows by the delta
           if LVal > $7FFFFFFF then
           begin
             _GoAway(FLastStreamID, H2_ERR_FLOW_CONTROL_ERROR);
@@ -946,7 +906,7 @@ begin
           FPeerInitWinSize := LVal;
           for LStreamPair in FStreams do
           begin
-            // RFC 7540 §6.9.2 — a SETTINGS change that pushes a stream's send
+            // RFC 7540 §6.9.2 - a SETTINGS change that pushes a stream's send
             // window above 2^31-1 is a FLOW_CONTROL_ERROR connection error.
             if (LDelta > 0) and
                (LStreamPair.Value.SendWindow > MaxInt - LDelta) then
@@ -956,7 +916,7 @@ begin
             end;
             Inc(LStreamPair.Value.SendWindow, LDelta);
           end;
-          // RFC 7540 §6.9.2 — enlarging the initial window frees credit for
+          // RFC 7540 §6.9.2 - enlarging the initial window frees credit for
           // streams whose response DATA was buffered awaiting flow control.
           // Flush them now. Snapshot first: _DrainPendingStream may remove/free
           // a stream, invalidating a live enumerator over FStreams.
@@ -983,17 +943,14 @@ begin
     end;
   end;
 
-  // Send SETTINGS ACK
   _SendFrame(H2_FRAME_SETTINGS, H2_FLAG_ACK, 0, nil, 0);
 end;
 
-// ===========================================================================
 // _HandlePing
-// ===========================================================================
 
 procedure TH2Conn._HandlePing(AFlags: Byte; APayload: PByte; APayLen: Integer);
 begin
-  if (AFlags and H2_FLAG_ACK) <> 0 then Exit; // ACK to our ping — ignore
+  if (AFlags and H2_FLAG_ACK) <> 0 then Exit; // ACK to our ping - ignore
   if APayLen <> 8 then
   begin
     _GoAway(FLastStreamID, H2_ERR_FRAME_SIZE_ERROR);
@@ -1010,15 +967,13 @@ begin
   _SendFrame(H2_FRAME_PING, H2_FLAG_ACK, 0, APayload, 8);
 end;
 
-// ===========================================================================
 // _HandleGoAway
-// ===========================================================================
 
 procedure TH2Conn._HandleGoAway(APayload: PByte; APayLen: Integer);
 begin
   FGoAwayReceived := True;
   if FActiveStreams > 0 then
-    // In-flight streams must still be able to send their responses — do NOT set
+    // In-flight streams must still be able to send their responses - do NOT set
     // FGoAwaySent here (it suppresses OUR sends); FDeferClose closes later.
     FDeferClose := True
   else if Assigned(FCloseProc) then
@@ -1026,20 +981,16 @@ begin
     // Idle: close now. FCloseProc may free THIS TH2Conn (production _CloseConn
     // does FreeAndNil(H2Conn)); set FGoAwaySent FIRST so ProcessData's
     // post-frame `if FGoAwaySent then Exit` stops the loop instead of iterating
-    // over freed memory — same contract as _GoAway. (See issue: the deferred
+    // over freed memory - same contract as _GoAway. (See issue: the deferred
     // close refactor removes the remaining reliance on FGoAwaySent here.)
     FGoAwaySent := True;
     FCloseProc(FConn);
   end;
 end;
 
-// ===========================================================================
 // _HandleRstStream
-// ===========================================================================
 
-// ===========================================================================
-// _HandlePriority — RFC 7540 §6.3 / §5.3.1
-// ===========================================================================
+// _HandlePriority - RFC 7540 §6.3 / §5.3.1
 
 procedure TH2Conn._HandlePriority(AStreamID: Cardinal; APayload: PByte;
   APayLen: Integer);
@@ -1056,19 +1007,19 @@ var
   end;
 
 begin
-  // §6.3 — PRIORITY MUST reference a stream; id 0x0 is a connection error.
+  // §6.3 - PRIORITY MUST reference a stream; id 0x0 is a connection error.
   if AStreamID = 0 then
   begin
     _GoAway(FLastStreamID, H2_ERR_PROTOCOL_ERROR);
     Exit;
   end;
-  // §6.3 — a length other than 5 octets is a stream error FRAME_SIZE_ERROR.
+  // §6.3 - a length other than 5 octets is a stream error FRAME_SIZE_ERROR.
   if APayLen <> 5 then
   begin
     _SendStreamRst(H2_ERR_FRAME_SIZE_ERROR);
     Exit;
   end;
-  // §5.3.1 — a stream cannot depend on itself: stream error PROTOCOL_ERROR.
+  // §5.3.1 - a stream cannot depend on itself: stream error PROTOCOL_ERROR.
   LDep := ((Cardinal(APayload[0]) shl 24) or (Cardinal(APayload[1]) shl 16) or
            (Cardinal(APayload[2]) shl  8) or  Cardinal(APayload[3])) and $7FFFFFFF;
   if LDep = AStreamID then
@@ -1076,7 +1027,7 @@ begin
     _SendStreamRst(H2_ERR_PROTOCOL_ERROR);
     Exit;
   end;
-  // Prioritization is not implemented — a well-formed PRIORITY is accepted and
+  // Prioritization is not implemented - a well-formed PRIORITY is accepted and
   // ignored (RFC 7540 §5.3.2 allows treating priority as advisory).
 end;
 
@@ -1102,7 +1053,7 @@ begin
     // A dispatched stream whose response was flow-control-buffered keeps
     // FActiveStreams incremented (cleanup normally deferred to
     // _CloseStreamAfterSend). If the peer RSTs it instead, mirror that decrement
-    // here — otherwise a pending GOAWAY drain (FDeferClose) never completes and
+    // here - otherwise a pending GOAWAY drain (FDeferClose) never completes and
     // the connection lingers as a zombie until the idle sweep.
     if LWasActive then
       if TInterlocked.Decrement(FActiveStreams) = 0 then
@@ -1115,12 +1066,10 @@ begin
     _GoAway(FLastStreamID, H2_ERR_ENHANCE_YOUR_CALM);
 end;
 
-// ===========================================================================
 // _HandleWindowUpdate
-// ===========================================================================
 
 procedure TH2Conn._HandleWindowUpdate(AStreamID: Cardinal; APayload: PByte; APayLen: Integer);
-// RFC 7540 §6.9 — increment the appropriate flow-control window and drain
+// RFC 7540 §6.9 - increment the appropriate flow-control window and drain
 // any buffered DATA that was waiting for credit.
 var
   LInc:         Integer;
@@ -1140,7 +1089,7 @@ begin
     (Cardinal(APayload[2]) shl  8) or  Cardinal(APayload[3])) and $7FFFFFFF;
   if LInc = 0 then
   begin
-    // RFC 7540 §6.9 — increment of 0 is a PROTOCOL_ERROR
+    // RFC 7540 §6.9 - increment of 0 is a PROTOCOL_ERROR
     if AStreamID = 0 then
       _GoAway(FLastStreamID, H2_ERR_PROTOCOL_ERROR)
     else
@@ -1164,7 +1113,7 @@ begin
     end;
     Inc(FConnSendWindow, LInc);
     // Drain ALL pending streams until the replenished connection window is
-    // exhausted — not just the first one, otherwise streams B, C, ... stall
+    // exhausted - not just the first one, otherwise streams B, C, ... stall
     // indefinitely (the peer already granted the credit and won't send another
     // WINDOW_UPDATE). Snapshot first: _DrainPendingStream may remove and free
     // a stream (via _CloseStreamAfterSend), invalidating a live enumerator over
@@ -1205,9 +1154,7 @@ begin
   end;
 end;
 
-// ===========================================================================
 // _HandleHeaders + _DecodeRequestHeaders
-// ===========================================================================
 
 procedure TH2Conn._HandleHeaders(AFlags: Byte; AStreamID: Cardinal;
   APayload: PByte; APayLen: Integer; AContinuation: Boolean);
@@ -1227,7 +1174,7 @@ begin
     Exit;
   end;
 
-  // RFC 7540 §5.1.1 — client-initiated streams MUST use odd IDs. Even IDs are
+  // RFC 7540 §5.1.1 - client-initiated streams MUST use odd IDs. Even IDs are
   // reserved for server push. Accepting an even ID from the peer would clash
   // with FNextPushStreamID and cause double registration in FStreams.
   // Only enforce on the HEADERS frame itself (not on CONTINUATION which
@@ -1240,7 +1187,7 @@ begin
 
   // #M1 / RFC 7540 §5.1.1: a client-initiated stream id must be strictly greater
   // than every previously opened id. A HEADERS opening a NEW stream (not tracked)
-  // with an id <= the highest seen means the client reused or lowered an id —
+  // with an id <= the highest seen means the client reused or lowered an id -
   // a connection-level PROTOCOL_ERROR (guards against state confusion / a closed
   // stream being silently re-created).
   if (not AContinuation) and ((AStreamID and 1) = 1) and
@@ -1256,7 +1203,7 @@ begin
   LHasPad  := (not AContinuation) and ((AFlags and H2_FLAG_PADDED)   <> 0);
   LHasPri  := (not AContinuation) and ((AFlags and H2_FLAG_PRIORITY) <> 0);
   LEndHdrs := (AFlags and H2_FLAG_END_HEADERS) <> 0;
-  // END_STREAM only applies to the opening HEADERS frame — CONTINUATION frames
+  // END_STREAM only applies to the opening HEADERS frame - CONTINUATION frames
   // do not define this flag (RFC 7540 §6.10). Persist the flag captured on the
   // HEADERS across any number of following CONTINUATION frames so the request
   // dispatch fires when the header block finally ends.
@@ -1281,7 +1228,7 @@ begin
       _GoAway(FLastStreamID, H2_ERR_PROTOCOL_ERROR);
       Exit;
     end;
-    // RFC 7540 §5.3.1 — a stream cannot depend on itself. The dependency is the
+    // RFC 7540 §5.3.1 - a stream cannot depend on itself. The dependency is the
     // first 4 octets of the priority block (top bit is the exclusive flag).
     LDep := ((Cardinal(APayload[0]) shl 24) or (Cardinal(APayload[1]) shl 16) or
              (Cardinal(APayload[2]) shl  8) or  Cardinal(APayload[3])) and $7FFFFFFF;
@@ -1293,7 +1240,6 @@ begin
     Inc(APayload, 5);
     Dec(APayLen, 5);
   end;
-  // Remove padding from end
   if LHasPad then
   begin
     if LPadLen >= APayLen then
@@ -1304,13 +1250,11 @@ begin
     Dec(APayLen, LPadLen);
   end;
 
-  // Get or create stream
   if not FStreams.TryGetValue(AStreamID, LStream) then
   begin
     LStream := TH2Stream.Create;
     LStream.StreamID   := AStreamID;
     LStream.State      := hssOpen;
-    // Initialize per-stream flow control windows
     LStream.SendWindow := FPeerInitWinSize;           // what the peer allows us to send
     LStream.RecvWindow := Integer(FInitialWindowSize); // what we allow the peer to send
     // MAX_CONCURRENT_STREAMS enforcement (RFC 7540 §5.1.2). #189: a refused
@@ -1329,9 +1273,9 @@ begin
     // Accumulate any CONTINUATION bytes already buffered, then decode
     if FContinHeadersLen > 0 then
     begin
-      // Append final fragment — reuse LTotal as combined length
+      // Append final fragment - reuse LTotal as combined length
       LTotal := FContinHeadersLen + APayLen;
-      // Bound the accumulated header block on the terminal fragment too — the
+      // Bound the accumulated header block on the terminal fragment too - the
       // check in the non-terminal branch alone let the block overrun by one
       // max-frame (~80 KB) via the END_HEADERS frame.
       if LTotal > CMaxContinHeadersSize then
@@ -1350,7 +1294,7 @@ begin
       _DecodeRequestHeaders(LStream, APayload, APayLen);
 
     // #189: the HPACK dynamic table is now advanced by the decode above. A
-    // refused stream is dropped here (RST_STREAM) instead of dispatched — the
+    // refused stream is dropped here (RST_STREAM) instead of dispatched - the
     // connection and its shared HPACK state stay consistent.
     if LStream.Refused then
     begin
@@ -1384,7 +1328,7 @@ begin
       SetLength(FContinHeaders, FContinHeadersLen + APayLen + 4096);
     Move(APayload^, FContinHeaders[FContinHeadersLen], APayLen);
     Inc(FContinHeadersLen, APayLen);
-    // Same rule as above — never clear a previously captured END_STREAM.
+    // Same rule as above - never clear a previously captured END_STREAM.
     LStream.EndStream := LStream.EndStream or LEndStrm;
   end;
 end;
@@ -1399,7 +1343,7 @@ begin
   end;
   // CONTINUATION-flood defense: the accumulated-bytes cap (CMaxContinHeadersSize)
   // does not stop a stream of ZERO-length CONTINUATION frames that never set
-  // END_HEADERS (they add 0 bytes, so the size guard never trips) — the peer
+  // END_HEADERS (they add 0 bytes, so the size guard never trips) - the peer
   // pins the connection in header-assembly forever. Count each CONTINUATION
   // toward the flood budget so an unbounded run trips GOAWAY.
   if _RegisterUnproductiveAndCheckFlood then
@@ -1410,9 +1354,7 @@ begin
   _HandleHeaders(AFlags, AStreamID, APayload, APayLen, True);
 end;
 
-// ===========================================================================
 // _HandleData
-// ===========================================================================
 
 procedure TH2Conn._HandleData(AFlags: Byte; AStreamID: Cardinal;
   APayload: PByte; APayLen: Integer);
@@ -1462,7 +1404,7 @@ begin
   end;
 
   // #190: DATA after END_STREAM was already seen (half-closed remote, RFC 7540
-  // §5.1) — e.g. a stream lingering in FStreams while its response drains under
+  // §5.1) - e.g. a stream lingering in FStreams while its response drains under
   // flow control. Re-appending would re-dispatch the handler and double-count
   // FActiveStreams (leaking the connection). Reject with STREAM_CLOSED and stop.
   if LStream.EndStream then
@@ -1527,9 +1469,7 @@ begin
   end;
 end;
 
-// ===========================================================================
-// _DecodeRequestHeaders — delegates to FHpack
-// ===========================================================================
+// _DecodeRequestHeaders - delegates to FHpack
 
 procedure TH2Conn._DecodeRequestHeaders(AStream: TH2Stream;
   APayload: PByte; APayLen: Integer);
@@ -1561,7 +1501,7 @@ begin
     procedure begin _GoAway(FLastStreamID, H2_ERR_COMPRESSION_ERROR) end)
   then
   begin
-    // HPACK-bomb defense: header list too large — REFUSED_STREAM (RFC 7540 §5.1.2),
+    // HPACK-bomb defense: header list too large - REFUSED_STREAM (RFC 7540 §5.1.2),
     // connection stays alive so well-behaved clients can retry other streams.
     if LTooBig then
     begin
@@ -1608,10 +1548,10 @@ begin
     end;
   end;
 
-  // RFC 7540 §8.1.2.1 — response pseudo-headers (e.g. :status) are invalid in a
+  // RFC 7540 §8.1.2.1 - response pseudo-headers (e.g. :status) are invalid in a
   // request. Valid request pseudo-headers were extracted into LMethod/LPath/
   // LScheme/LAuthority, so any name still starting with ':' here is illegal.
-  // §8.1.2.6 — capture a declared content-length for later DATA validation.
+  // §8.1.2.6 - capture a declared content-length for later DATA validation.
   for LI := 0 to High(LHeaders) do
   begin
     if (LHeaders[LI].Key <> '') and (LHeaders[LI].Key[Low(string)] = ':') then
@@ -1638,9 +1578,7 @@ begin
   AStream.RequestHeaders := LHeaders;
 end;
 
-// ===========================================================================
-// _DispatchStream — build TH2RequestData and call FOnRequest
-// ===========================================================================
+// _DispatchStream - build TH2RequestData and call FOnRequest
 
 procedure TH2Conn._DispatchStream(AStream: TH2Stream);
 var
@@ -1655,7 +1593,7 @@ var
   LIsClientStream: Boolean;
   LClRst: TBytes;
 begin
-  // RFC 7540 §8.1.2.6 — a declared content-length that disagrees with the sum
+  // RFC 7540 §8.1.2.6 - a declared content-length that disagrees with the sum
   // of DATA frame payloads is a stream error (PROTOCOL_ERROR). Reject before
   // invoking the application handler.
   if AStream.HasContentLength and (AStream.ContentLength <> Int64(AStream.BodyLen)) then
@@ -1694,7 +1632,6 @@ begin
 
   LReq.Headers := AStream.RequestHeaders;
 
-  // Extract content-type from headers
   LReq.ContentType := '';
   for I := 0 to Length(AStream.RequestHeaders) - 1 do
     if SameText(AStream.RequestHeaders[I].Key, 'content-type') then
@@ -1759,9 +1696,7 @@ begin
   end;
 end;
 
-// ===========================================================================
-// SendResponse — send HEADERS [+ DATA] frame(s)
-// ===========================================================================
+// SendResponse - send HEADERS [+ DATA] frame(s)
 
 procedure TH2Conn.SendResponse(AStreamID: Cardinal; AStatus: Integer;
   const AContentType: string; const ABody: TBytes;
@@ -1793,7 +1728,7 @@ begin
     Exit;
   end;
 
-  // HEADERS frame (END_HEADERS only — DATA follows)
+  // HEADERS frame (END_HEADERS only - DATA follows)
   _SendFrame(H2_FRAME_HEADERS, H2_FLAG_END_HEADERS, AStreamID,
     @LHdrPayload[0], Length(LHdrPayload));
 
@@ -1807,7 +1742,7 @@ begin
   begin
     LAvail := FConnSendWindow;
     if LAvail > LStream.SendWindow then LAvail := LStream.SendWindow;
-    if LAvail <= 0 then Break;  // window exhausted — buffer the rest
+    if LAvail <= 0 then Break;  // window exhausted - buffer the rest
 
     LChunkSize := LRemaining;
     if LChunkSize > LAvail          then LChunkSize := LAvail;
@@ -1834,16 +1769,14 @@ begin
     SetLength(LStream.PendingBody, LRemaining);
     Move(ABody[LDataOfs], LStream.PendingBody[0], LRemaining);
     LStream.PendingBodyOfs := 0;
-    // Timestamp when the stream began waiting for window credit — used by
+    // Timestamp when the stream began waiting for window credit - used by
     // _PendingWaitExpired to break the deadlock when the peer advertised
     // SETTINGS_INITIAL_WINDOW_SIZE = 0 and never sends WINDOW_UPDATE.
     LStream.PendingSinceTicks := TStopwatch.GetTimeStamp;
   end;
 end;
 
-// ===========================================================================
-// Server push — RFC 7540 §8.2
-// ===========================================================================
+// Server push - RFC 7540 §8.2
 
 procedure TH2Conn._SendPushPromiseAndResponse(AAssocStreamID: Cardinal;
   const APush: TPoseidonPushResource;
@@ -1865,7 +1798,6 @@ begin
   // Stream ids are 31-bit; once the even space is exhausted, stop pushing rather
   // than wrap (the high bit would be masked and even ids silently reused).
   if FNextPushStreamID > $7FFFFFFE then Exit;
-  // Allocate the next server-initiated even stream ID
   LPromisedID       := FNextPushStreamID;
   Inc(FNextPushStreamID, 2);
 
@@ -1882,11 +1814,9 @@ begin
   if Length(LReqHdr) > 0 then
     Move(LReqHdr[0], LPPPayload[4], Length(LReqHdr));
 
-  // Send PUSH_PROMISE on the associated (client-initiated) stream
   _SendFrame(H2_FRAME_PUSH_PROMISE, H2_FLAG_END_HEADERS,
     AAssocStreamID, @LPPPayload[0], Length(LPPPayload));
 
-  // Create the synthetic server-initiated stream
   LPushStream            := TH2Stream.Create;
   LPushStream.StreamID   := LPromisedID;
   LPushStream.State      := hssHalfClosedRemote;
@@ -1894,7 +1824,6 @@ begin
   LPushStream.RecvWindow := Integer(FInitialWindowSize);
   FStreams.Add(LPromisedID, LPushStream);
 
-  // Build and send the promised response (HEADERS + DATA)
   LBodyLen    := Length(APush.Body);
   LHdrPayload := FHpack.EncodeResponseHeaders(200, APush.ContentType,
     LBodyLen, APush.Extra);
@@ -1906,7 +1835,7 @@ begin
   begin
     _SendFrame(H2_FRAME_HEADERS, H2_FLAG_END_HEADERS,
       LPromisedID, @LHdrPayload[0], Length(LHdrPayload));
-    // #191: chunk the push body by the peer's MAX_FRAME_SIZE — a single
+    // #191: chunk the push body by the peer's MAX_FRAME_SIZE - a single
     // oversized DATA frame is a FRAME_SIZE_ERROR that kills the connection.
     // Decrement the connection/stream send windows so later real responses see
     // a correct window. (Push is best-effort: it does not buffer/block on an
@@ -1928,14 +1857,12 @@ begin
     end;
   end;
 
-  // Immediately close the synthetic stream — push responses are half-closed
+  // Immediately close the synthetic stream - push responses are half-closed
   FStreams.Remove(LPromisedID);
   LPushStream.Free;
 end;
 
-// ===========================================================================
-// DispatchH2CInitialRequest — synthetic stream 1 for h2c upgrade
-// ===========================================================================
+// DispatchH2CInitialRequest - synthetic stream 1 for h2c upgrade
 
 procedure TH2Conn.DispatchH2CInitialRequest(const AMethod, APath, AQueryString,
   ARemoteAddr, AHost, AContentType: string;
@@ -1955,7 +1882,6 @@ var
 begin
   if FGoAwaySent then Exit;
 
-  // Create synthetic stream 1 with initial flow control windows
   LStream := TH2Stream.Create;
   LStream.StreamID   := 1;
   LStream.State      := hssHalfClosedRemote;
@@ -1966,7 +1892,6 @@ begin
   // Client-initiated stream (odd ID) counts toward MAX_CONCURRENT_STREAMS.
   TInterlocked.Increment(FClientStreamCount);
 
-  // Build the request data
   LReq.Method      := AMethod;
   LReq.Path        := APath;
   LReq.QueryString := AQueryString;

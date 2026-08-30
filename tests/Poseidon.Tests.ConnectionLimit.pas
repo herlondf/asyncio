@@ -1,4 +1,4 @@
-unit Poseidon.Tests.ConnectionLimit;
+﻿unit Poseidon.Tests.ConnectionLimit;
 
 // Integration tests for MaxConnections, MaxConnectionsPerIP and IdleTimeout.
 // Uses raw Winsock2 sockets to hold connections open without sending HTTP data.
@@ -158,7 +158,7 @@ begin
   try
     Assert.IsTrue(IsConnOpen(S1),  'S1 deve continuar aberta (MaxConnections=2)');
     Assert.IsTrue(IsConnOpen(S2),  'S2 deve continuar aberta (MaxConnections=2)');
-    Assert.IsFalse(IsConnOpen(S3), 'S3 deve ser recusada — limite de conexões atingido');
+    Assert.IsFalse(IsConnOpen(S3), 'S3 deve ser recusada - limite de conexões atingido');
   finally
     closesocket(S1);
     closesocket(S2);
@@ -180,7 +180,7 @@ begin
   try
     Assert.IsTrue(IsConnOpen(S1),  'S1 deve continuar aberta (PerIP=2)');
     Assert.IsTrue(IsConnOpen(S2),  'S2 deve continuar aberta (PerIP=2)');
-    Assert.IsFalse(IsConnOpen(S3), 'S3 deve ser recusada — limite por IP atingido');
+    Assert.IsFalse(IsConnOpen(S3), 'S3 deve ser recusada - limite por IP atingido');
   finally
     closesocket(S1);
     closesocket(S2);

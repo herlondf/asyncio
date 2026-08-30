@@ -1,4 +1,4 @@
-unit Poseidon.Tests.Connection;
+﻿unit Poseidon.Tests.Connection;
 
 // DUnitX tests for TNativeConn ref-counting and lifecycle (#43).
 //
@@ -38,10 +38,8 @@ uses
   Poseidon.Net.Connection,
   Poseidon.Net.Pool.Buffer;
 
-// ---------------------------------------------------------------------------
 // Test helper: subclass that tracks whether Destroy was called.
 // We use a PBoolean so the flag survives after the object is freed.
-// ---------------------------------------------------------------------------
 type
   TTestableConn = class(TNativeConn)
   private
@@ -88,9 +86,7 @@ begin
   inherited;
 end;
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 procedure TConnectionRefCountTests.Create_InitialRefCount_IsOne;
 // After Create, FRefCount = 1. One Release should trigger Destroy.
@@ -154,7 +150,7 @@ begin
   LConn.Release;  // ref=1
   Assert.IsFalse(LDestroyed, 'Server Release: still 1 ref alive (op2)');
 
-  // Op 2 completes — last ref
+  // Op 2 completes - last ref
   LConn.Release;  // ref=0 -> Destroy
   Assert.IsTrue(LDestroyed, 'Last Release must trigger Destroy');
 end;
@@ -212,14 +208,14 @@ begin
   Assert.IsTrue(LConn.AccumBuf <> nil, 'AccumBuf must be allocated after Create');
   Assert.IsTrue(Length(LConn.AccumBuf) > 0, 'AccumBuf must have non-zero length');
   LConn.Release;
-  Assert.IsTrue(LDestroyed, 'Destroy must have run — AccumBuf returned to pool');
+  Assert.IsTrue(LDestroyed, 'Destroy must have run - AccumBuf returned to pool');
 end;
 
 procedure TConnectionRefCountTests.Release_PastZero_DoesNotDoubleDestroy;
 // #234: an extra Release beyond what Create/AddRef ever handed out (the
 // refcount-underflow guard added to TNativeConn.Release) must log and return
 // instead of calling Self.Free a second time. Proven via an external counter
-// (not a field read on the already-freed instance) — Destroy must run exactly
+// (not a field read on the already-freed instance) - Destroy must run exactly
 // once, never twice, no matter how many extra Releases follow.
 var
   LDestroyedCount: Integer;
@@ -239,7 +235,7 @@ end;
 
 initialization
   // #243: without this explicit registration, this fixture's RTTI-based
-  // [TestFixture] attribute is never picked up by the DUnitX runner — none
+  // [TestFixture] attribute is never picked up by the DUnitX runner - none
   // of its tests ran (silently missing from the "N cases, 0 failed" count)
   // until this was added. Every other fixture in tests/ already does this.
   TDUnitX.RegisterTestFixture(TConnectionRefCountTests);

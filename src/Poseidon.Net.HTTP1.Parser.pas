@@ -1,6 +1,6 @@
-unit Poseidon.Net.HTTP1.Parser;
+﻿unit Poseidon.Net.HTTP1.Parser;
 
-// HTTP/1.1 request parser (SRP refactoring R-2).
+// HTTP/1.1 request parser.
 //
 // Zero-split parser: scans a raw byte buffer using integer indices,
 // materialising Delphi strings only for the final field values. Eliminates
@@ -8,8 +8,8 @@ unit Poseidon.Net.HTTP1.Parser;
 // original inline code had before extraction.
 //
 // Entry points:
-//   ParseHTTP1Request  — parse one complete request from a raw byte buffer
-//   DecodeHTTP1Chunked — decode chunked Transfer-Encoding body
+//   ParseHTTP1Request  - parse one complete request from a raw byte buffer
+//   DecodeHTTP1Chunked - decode chunked Transfer-Encoding body
 
 interface
 
@@ -28,8 +28,8 @@ uses
 // Parses one HTTP/1.1 request from ABuf[0..ABufLen-1].
 //
 // Returns True when a complete, valid request was parsed.
-//   AConsumed   — bytes consumed from ABuf; caller must shift its buffer.
-//   ABadRequest — True when the request is definitively malformed (→ 400).
+//   AConsumed   - bytes consumed from ABuf; caller must shift its buffer.
+//   ABadRequest - True when the request is definitively malformed (→ 400).
 //
 // Returns False + ABadRequest=False when more data is needed (→ wait).
 // Returns False + ABadRequest=True  when the request is malformed (→ close).
@@ -47,7 +47,7 @@ function ParseHTTP1Request(
   out AConsumed:      Integer;
   out ABadRequest:    Boolean): Boolean;
 
-// Lightweight parser — zero string allocations for headers.
+// Lightweight parser - zero string allocations for headers.
 // Parses only request line (method, path, query) and detects Content-Length,
 // Connection and Transfer-Encoding by byte scan.  Headers are stored as raw
 // byte range (AHdrStart..AHdrEnd) for lazy materialization by the caller.
@@ -88,12 +88,10 @@ function DecodeHTTP1Chunked(
 
 implementation
 
-// ---------------------------------------------------------------------------
 // Byte classification lookup table
 //
-// Pre-computed flags per byte value — replaces per-byte comparisons in the
+// Pre-computed flags per byte value - replaces per-byte comparisons in the
 // parsing hot loops with a single indexed read + bitmask test.
-// ---------------------------------------------------------------------------
 
 const
   BF_CR    = $01;  // $0D
@@ -104,15 +102,15 @@ const
   BF_QMARK = $20;  // $3F
   BF_OWS   = $0C;  // SP or HT (BF_SP or BF_HT)
   // Maximum number of request headers accepted. Exceeding this is rejected
-  // (400) rather than silently truncated — see issue #164.
+  // (400) rather than silently truncated - see issue #164.
   CMaxHeaderCount = 100;
   // Max digits accepted for Content-Length; 18 decimal digits always fit an
-  // Int64 without overflow (Int64 max has 19 digits) — overflow guard (#158).
+  // Int64 without overflow (Int64 max has 19 digits) - overflow guard (#158).
   CMaxCLDigits = 18;
   // Max hex digits accepted for a chunk size (16 hex digits = 64-bit space).
   CMaxChunkHexDigits = 16;
   // Cap for the entire chunk-size line (hex size + optional chunk extensions).
-  // RFC 7230 §4.1.1 permits `size[;ext-name[=ext-val]]` — the parser accepts
+  // RFC 7230 §4.1.1 permits `size[;ext-name[=ext-val]]` - the parser accepts
   // extensions but skips them without semantic validation; the cap bounds the
   // work per line and prevents a chunk-ext DoS.
   CMaxChunkLineSize = 8192;
@@ -131,9 +129,7 @@ begin
   GLUT[$3F] := BF_QMARK;
 end;
 
-// ---------------------------------------------------------------------------
 // Perfect hash for common HTTP headers
-// ---------------------------------------------------------------------------
 
 type
   THeaderId = (
@@ -235,9 +231,7 @@ begin
   _RegisterHeader('referer', hiReferer);
 end;
 
-// ---------------------------------------------------------------------------
-// Word-scan CRLF — process 4 bytes at a time
-// ---------------------------------------------------------------------------
+// Word-scan CRLF - process 4 bytes at a time
 
 function _FindCRLFCRLF(ABuf: PByte; ALen: Integer): Integer;
 var
@@ -351,7 +345,6 @@ begin
 
   while True do
   begin
-    // Find CRLF after chunk-size line
     LCRLFP := -1;
     I := LPos;
     while I < ABufLen - 1 do
@@ -408,7 +401,6 @@ begin
           Result    := True;
           Exit;
         end;
-        // Skip one trailer-field line.
         I      := LPos;
         LCRLFP := -1;
         while I < ABufLen - 1 do
@@ -517,13 +509,11 @@ begin
     end;
   if LLineEnd <= 0 then begin ABadRequest := True; Exit; end;
 
-  // First space: METHOD SP PATH
   LSpace1 := -1;
   for I := 0 to LLineEnd - 1 do
     if ABuf[I] = SP then begin LSpace1 := I; Break; end;
   if LSpace1 <= 0 then begin ABadRequest := True; Exit; end;
 
-  // Second space: PATH SP VERSION (optional in HTTP/0.9)
   LSpace2 := -1;
   for I := LSpace1 + 1 to LLineEnd - 1 do
     if ABuf[I] = SP then begin LSpace2 := I; Break; end;
@@ -531,7 +521,6 @@ begin
 
   AMethod := BufToStr(0, LSpace1);
 
-  // Find '?' inside path to split path/query
   LQPos := -1;
   for I := LSpace1 + 1 to LSpace2 - 1 do
     if ABuf[I] = Byte('?') then begin LQPos := I; Break; end;
@@ -560,7 +549,6 @@ begin
       (ABuf[LSpace2 + 8] = Byte('1'));
   AKeepAlive := LIsHttp11;
 
-  // --- Parse headers ---
   LCL        := 0;
   LThisCL    := 0;
   LCLSeen    := False;
@@ -594,14 +582,14 @@ begin
       end;
     end;
     if LLineEnd < 0 then Break;
-    if LLineEnd = LLineStart then  // empty line — skip
+    if LLineEnd = LLineStart then  // empty line - skip
     begin
       LLineStart := LLineEnd + 2;
       Continue;
     end;
 
     // Reject obsolete line folding (obs-fold): a header line starting with
-    // SP/HT is a continuation — RFC 7230 §3.2.4 requires rejection (issue #162).
+    // SP/HT is a continuation - RFC 7230 §3.2.4 requires rejection (issue #162).
     if (GLUT[ABuf[LLineStart]] and BF_OWS) <> 0 then
     begin ABadRequest := True; Exit; end;
 
@@ -611,13 +599,12 @@ begin
       Continue;
     end;
 
-    // Reject whitespace before the colon ("Name : value") — an HTTP request
+    // Reject whitespace before the colon ("Name : value") - an HTTP request
     // smuggling vector (RFC 7230 §3.2.4) (issue #160).
     if (LColonPos > LLineStart) and
        ((GLUT[ABuf[LColonPos - 1]] and BF_OWS) <> 0) then
     begin ABadRequest := True; Exit; end;
 
-    // Skip OWS after colon using LUT
     LValStart := LColonPos + 1;
     while (LValStart < LLineEnd) and
           ((GLUT[ABuf[LValStart]] and BF_OWS) <> 0) do
@@ -675,11 +662,11 @@ begin
   SetLength(AHeaders, LHdrCount);
 
   // A Transfer-Encoding whose final coding is not "chunked" leaves the message
-  // length undeterminable — reject (RFC 7230 §3.3.3) (issue #160).
+  // length undeterminable - reject (RFC 7230 §3.3.3) (issue #160).
   if LTEPresent and not LIsChunked then
   begin ABadRequest := True; Exit; end;
 
-  // Request smuggling guard — Content-Length + Transfer-Encoding: chunked
+  // Request smuggling guard - Content-Length + Transfer-Encoding: chunked
   // (RFC 7230 §3.3.3). Presence of CL (even "0") conflicts with chunked.
   if HasRequestSmuggling(LCLSeen, LIsChunked) then
   begin
@@ -722,9 +709,7 @@ begin
   Result    := True;
 end;
 
-// ---------------------------------------------------------------------------
-// ParseHTTP1Lightweight — minimal parse (zero header string allocations)
-// ---------------------------------------------------------------------------
+// ParseHTTP1Lightweight - minimal parse (zero header string allocations)
 
 function ParseHTTP1Lightweight(
   const ABuf: TBytes; ABufLen, AMaxHeaderSize, AMaxBodySize: Integer;
@@ -735,7 +720,7 @@ function ParseHTTP1Lightweight(
 const
   SP = $20; CR = $0D; LF = $0A;
 
-  // Direct byte→char widening — avoids TEncoding virtual dispatch + table lookup
+  // Direct byte→char widening - avoids TEncoding virtual dispatch + table lookup
   function BufToStr(AStart, ALen: Integer): string;
   var
     LI: Integer;
@@ -777,7 +762,7 @@ begin
     Exit;
   end;
 
-  // Parse request line — bound is LHdrEnd inclusive: with no headers the
+  // Parse request line - bound is LHdrEnd inclusive: with no headers the
   // request-line CRLF IS at LHdrEnd (first \r of the \r\n\r\n terminator).
   LLineEnd := -1;
   for I := 0 to LHdrEnd do
@@ -826,7 +811,7 @@ begin
   AHdrStart := LLineEnd + 2;
   AHdrEnd   := LHdrEnd;
 
-  // Scan headers by BYTES only — detect Content-Length, Connection,
+  // Scan headers by BYTES only - detect Content-Length, Connection,
   // Transfer-Encoding without any string allocation
   LCL        := 0;
   LThisCL    := 0;
@@ -840,7 +825,6 @@ begin
     // Reject rather than silently ignore when the header count is exceeded.
     if LHdrCount >= CMaxHeaderCount then begin ABadRequest := True; Exit; end;
 
-    // Find end of line
     LLineEnd := -1;
     LColonPos := -1;
     for I := LLineStart to LHdrEnd do
@@ -858,7 +842,7 @@ begin
       Continue;
     end;
 
-    // Reject obsolete line folding (obs-fold) — RFC 7230 §3.2.4 (issue #162).
+    // Reject obsolete line folding (obs-fold) - RFC 7230 §3.2.4 (issue #162).
     if (GLUT[ABuf[LLineStart]] and BF_OWS) <> 0 then
     begin ABadRequest := True; Exit; end;
 
@@ -875,7 +859,6 @@ begin
 
     Inc(LHdrCount);
 
-    // Skip OWS
     LValStart := LColonPos + 1;
     while (LValStart < LLineEnd) and
           ((GLUT[ABuf[LValStart]] and BF_OWS) <> 0) do
@@ -929,7 +912,7 @@ begin
   if LTEPresent and not LIsChunked then
   begin ABadRequest := True; Exit; end;
 
-  // Request smuggling check — CL presence (even "0") conflicts with chunked.
+  // Request smuggling check - CL presence (even "0") conflicts with chunked.
   if HasRequestSmuggling(LCLSeen, LIsChunked) then
   begin ABadRequest := True; Exit; end;
 
@@ -966,9 +949,7 @@ begin
   Result    := True;
 end;
 
-// ---------------------------------------------------------------------------
-// MaterializeHeaders — on-demand string allocation for headers
-// ---------------------------------------------------------------------------
+// MaterializeHeaders - on-demand string allocation for headers
 
 function MaterializeHeaders(const ABuf: TBytes;
   AHdrStart, AHdrEnd: Integer): TArray<TPair<string,string>>;

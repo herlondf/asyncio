@@ -1,4 +1,4 @@
-unit Poseidon.Tests.Middleware.JWT;
+﻿unit Poseidon.Tests.Middleware.JWT;
 
 interface
 
@@ -150,7 +150,7 @@ begin
     EPoseidonException);
 end;
 
-// #209: iss enforced only when configured — a token from another issuer (same
+// #209: iss enforced only when configured - a token from another issuer (same
 // shared secret) must be rejected (cross-service replay).
 procedure TJWTMiddlewareTests.IssuerMismatchRaises401;
 var
@@ -205,7 +205,7 @@ begin
     procedure begin LMw(LCtx, procedure begin end); end, EPoseidonException);
 end;
 
-// RFC 7519 §4.1.3 — aud may be an array; a match on any element is accepted.
+// RFC 7519 §4.1.3 - aud may be an array; a match on any element is accepted.
 procedure TJWTMiddlewareTests.AudienceInArrayMatchCallsNext;
 var
   LCtx: TNativeRequestContext;

@@ -34,7 +34,7 @@ const
   SSL_TLSEXT_ERR_ALERT_FATAL         = 2;
   SSL_TLSEXT_ERR_NOACK               = 3;
 
-  // mTLS — client certificate verification modes
+  // mTLS - client certificate verification modes
   SSL_VERIFY_NONE                  = $00;
   SSL_VERIFY_PEER                  = $01;
   SSL_VERIFY_FAIL_IF_NO_PEER_CERT  = $02;
@@ -69,15 +69,15 @@ type
   TFn_bio_smem    = function: Pointer; cdecl;
   TFn_bio_new     = function(t: Pointer): Pointer; cdecl;
   TFn_bio_rw      = function(bio, data: Pointer; dlen: Integer): Integer; cdecl;
-  // long BIO_ctrl(BIO*, int cmd, long larg, void* parg) — larg/return are `long`
+  // long BIO_ctrl(BIO*, int cmd, long larg, void* parg) - larg/return are `long`
   // (64-bit on Linux64); bind as NativeInt so a future cmd with a nonzero 64-bit
   // larg or return is not truncated.
   TFn_bio_ctrl    = function(bio: Pointer; cmd: Integer; larg: NativeInt; parg: Pointer): NativeInt; cdecl;
   TFn_ctx_ctrl    = function(ctx: Pointer; cmd: Integer; larg: NativeInt; parg: Pointer): NativeInt; cdecl;
   TFn_ctx_cbctrl  = function(ctx: Pointer; cmd: Integer; cb: Pointer): NativeInt; cdecl;
-  // uint64_t SSL_CTX_set_options(SSL_CTX*, uint64_t) — a real function since
+  // uint64_t SSL_CTX_set_options(SSL_CTX*, uint64_t) - a real function since
   // OpenSSL 1.1.0 (the old SSL_CTRL_OPTIONS ctrl was removed, so the ctrl path
-  // would silently no-op). op/return are 64-bit — bind as NativeUInt.
+  // would silently no-op). op/return are 64-bit - bind as NativeUInt.
   TFn_ctx_setopt  = function(ctx: Pointer; op: NativeUInt): NativeUInt; cdecl;
   TFn_ssl_getname = function(ssl: Pointer; nametype: Integer): PAnsiChar; cdecl;
   TFn_ssl_setctx  = function(ssl, ctx: Pointer): Pointer; cdecl;
@@ -161,22 +161,22 @@ type
     class function  BIO_Read(ABIO, ABuf: Pointer; ALen: Integer): Integer; inline;
     class function  BIO_Pending(ABIO: Pointer): Integer; inline;
 
-    // SNI (Server Name Indication) — multi-cert support
+    // SNI (Server Name Indication) - multi-cert support
     class procedure CTX_SetSNICallback(ACtx, ACallback, AArg: Pointer); static;
     class function  SSL_GetServername(ASSL: Pointer): string; static;
     class procedure SSL_SetCTX(ASSL, ACtx: Pointer); static;
 
-    // ALPN — HTTP/2 protocol negotiation (OpenSSL 1.0.2+)
+    // ALPN - HTTP/2 protocol negotiation (OpenSSL 1.0.2+)
     class procedure CTX_SetALPN(ACtx: Pointer; AArg: Pointer); static;
     class function  SSL_GetSelectedProtocol(ASSL: Pointer): string; static;
 
-    // mTLS — require client certificate signed by ACAFile (PEM CA bundle).
+    // mTLS - require client certificate signed by ACAFile (PEM CA bundle).
     // Call after CTX_New. Raises EPoseidonSSL when ACAFile cannot be loaded.
     class procedure CTX_ConfigureMTLS(ACtx: Pointer; const ACAFile: string);
 
     // Reject TLS handshakes below AMinVersion.
     // Use constants TLS1_2_VERSION ($0303) or TLS1_3_VERSION ($0304).
-    // No-op when AMinVersion = 0 (library default — OpenSSL 3.x: TLS 1.2).
+    // No-op when AMinVersion = 0 (library default - OpenSSL 3.x: TLS 1.2).
     class procedure CTX_SetMinVersion(ACtx: Pointer; AMinVersion: Integer);
 
     // Harden the context: disable client-initiated renegotiation (TLS 1.2
@@ -318,7 +318,7 @@ begin
   @f_ERR_error_string := RequireProc(FLibCrypto, 'ERR_error_string');
   @f_ERR_clear_error := RequireProc(FLibCrypto, 'ERR_clear_error');
 
-  // ALPN — optional, requires OpenSSL 1.0.2+
+  // ALPN - optional, requires OpenSSL 1.0.2+
 {$IFDEF MSWINDOWS}
   @f_SSL_CTX_set_alpn_select_cb := GetProcAddress(FLibSSL, 'SSL_CTX_set_alpn_select_cb');
   @f_SSL_get0_alpn_selected     := GetProcAddress(FLibSSL, 'SSL_get0_alpn_selected');
@@ -371,7 +371,7 @@ var
 begin
   Result := '';
   if not FLoaded then Exit;
-  // Drain entire OpenSSL error queue — first error becomes the result,
+  // Drain entire OpenSSL error queue - first error becomes the result,
   // remaining errors are consumed to prevent queue pollution.
   LCode := f_ERR_get_error;
   if LCode = 0 then Exit;
@@ -491,9 +491,7 @@ begin
   f_SSL_set_SSL_CTX(ASSL, ACtx);
 end;
 
-// ---------------------------------------------------------------------------
-// ALPN select callback — always prefers "h2" over "http/1.1"
-// ---------------------------------------------------------------------------
+// ALPN select callback - always prefers "h2" over "http/1.1"
 
 function PoseidonALPNSelectCallback(ASSL: Pointer; AOutPP, AOutlenP: Pointer;
   AIn: PByte; AInLen: Cardinal; AArg: Pointer): Integer; cdecl;
@@ -502,7 +500,6 @@ var
   L: Byte;
 begin
   Result := SSL_TLSEXT_ERR_NOACK;
-  // First pass: look for "h2"
   I := 0;
   while I < AInLen do
   begin
@@ -518,7 +515,7 @@ begin
     end;
     Inc(I, L);
   end;
-  // Second pass: "http/1.1" — the ONLY other protocol the server speaks. Never
+  // Second pass: "http/1.1" - the ONLY other protocol the server speaks. Never
   // select the client's first-listed protocol blindly (RFC 7301 §3.2): claiming
   // a protocol the server does not implement is a protocol-confusion bug. With no
   // overlap, leave Result = NOACK (no ALPN in ServerHello; the connection then
@@ -569,9 +566,7 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
-// mTLS — require client certificate
-// ---------------------------------------------------------------------------
+// mTLS - require client certificate
 
 class procedure TPoseidonSSL.CTX_ConfigureMTLS(ACtx: Pointer; const ACAFile: string);
 begin
@@ -586,10 +581,8 @@ begin
     SSL_VERIFY_PEER or SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nil);
 end;
 
-// ---------------------------------------------------------------------------
 // Minimum TLS version
 // SSL_CTX_set_min_proto_version is a macro: SSL_CTX_ctrl(ctx, 123, version, NULL)
-// ---------------------------------------------------------------------------
 
 class procedure TPoseidonSSL.CTX_SetMinVersion(ACtx: Pointer; AMinVersion: Integer);
 begin
@@ -597,9 +590,7 @@ begin
   f_SSL_CTX_ctrl(ACtx, SSL_CTRL_SET_MIN_PROTO_VERSION, AMinVersion, nil);
 end;
 
-// ---------------------------------------------------------------------------
 // Security hardening options (SSL_CTX_set_options)
-// ---------------------------------------------------------------------------
 
 class procedure TPoseidonSSL.CTX_SetSecurityOptions(ACtx: Pointer);
 const
@@ -613,11 +604,9 @@ begin
     SSL_OP_CIPHER_SERVER_PREFERENCE);
 end;
 
-// ---------------------------------------------------------------------------
-// TLS session resumption — reduces handshake RTT on reconnections
+// TLS session resumption - reduces handshake RTT on reconnections
 // SSL_CTX_set_session_cache_mode and SSL_CTX_sess_set_cache_size are macros
 // over SSL_CTX_ctrl, so f_SSL_CTX_ctrl (already loaded) handles both.
-// ---------------------------------------------------------------------------
 
 class procedure TPoseidonSSL.CTX_EnableSessionCache(ACtx: Pointer; ACacheSize: Integer);
 begin

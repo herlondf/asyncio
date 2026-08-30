@@ -1,6 +1,6 @@
-unit Poseidon.Native.Group;
+﻿unit Poseidon.Native.Group;
 
-// Native route groups — organize endpoints under a common prefix.
+// Native route groups - organize endpoints under a common prefix.
 //
 // Usage (fluent):
 //   Server.Group('/api/v1')

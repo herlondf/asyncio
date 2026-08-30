@@ -1,14 +1,14 @@
-unit Poseidon.Net.Pool.Buffer;
+﻿unit Poseidon.Net.Pool.Buffer;
 
 // Multi-tier object pool for AccumBuf buffers.
 //
 // Three tiers by buffer size:
-//   Tier 0 —   8 KB (256 slots) — initial connection buffer, ping/small requests
-//   Tier 1 —  64 KB ( 64 slots) — medium requests / uploads
-//   Tier 2 — 512 KB ( 16 slots) — large responses / streaming
+//   Tier 0 -   8 KB (256 slots) - initial connection buffer, ping/small requests
+//   Tier 1 -  64 KB ( 64 slots) - medium requests / uploads
+//   Tier 2 - 512 KB ( 16 slots) - large responses / streaming
 //
 // v2: Thread-local fast path per tier.  Each worker thread keeps a small cache
-//     (TL_TIER*_MAX) per tier — Acquire/Release hit this cache first with ZERO
+//     (TL_TIER*_MAX) per tier - Acquire/Release hit this cache first with ZERO
 //     locks.  Only when the local cache is empty (Acquire) or full (Release)
 //     does the code fall back to the global pool under TMonitor.
 //
@@ -34,7 +34,7 @@ const
   POOL_TIER1_MAX   =  64;
   POOL_TIER2_MAX   =  16;
 
-  // Thread-local cache sizes per tier (small — avoids hoarding buffers)
+  // Thread-local cache sizes per tier (small - avoids hoarding buffers)
   TL_TIER0_MAX     =   8;
   TL_TIER1_MAX     =   4;
   TL_TIER2_MAX     =   2;
@@ -82,9 +82,7 @@ end;
 procedure _HintHugePage(var ABuf: TBytes); begin end;
 {$ENDIF}
 
-// ---------------------------------------------------------------------------
-// Thread-local cache — one instance per thread, lazily created
-// ---------------------------------------------------------------------------
+// Thread-local cache - one instance per thread, lazily created
 
 type
   TThreadLocalBufCache = class
@@ -109,9 +107,7 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
 // Global pool (fallback when thread-local cache misses)
-// ---------------------------------------------------------------------------
 
 var
   GTier0: TStack<TBytes>;
@@ -125,9 +121,7 @@ var
   GPoolLock: TCriticalSection;
 {$ENDIF}
 
-// ---------------------------------------------------------------------------
-// Acquire — thread-local first, then global, then heap
-// ---------------------------------------------------------------------------
+// Acquire - thread-local first, then global, then heap
 
 function _GlobalPopOrAlloc(AStack: TStack<TBytes>; ABufSize: Integer): TBytes;
 var
@@ -191,9 +185,7 @@ begin
     SetLength(Result, ASize);
 end;
 
-// ---------------------------------------------------------------------------
-// Release — thread-local first, overflow goes to global
-// ---------------------------------------------------------------------------
+// Release - thread-local first, overflow goes to global
 
 procedure _GlobalPushIfRoom(AStack: TStack<TBytes>; AMax: Integer; const ABuf: TBytes);
 begin

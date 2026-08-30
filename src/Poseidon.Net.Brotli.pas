@@ -1,11 +1,11 @@
-unit Poseidon.Net.Brotli;
+﻿unit Poseidon.Net.Brotli;
 
 // Lazy-load Brotli encoder/decoder for Poseidon.
-// Loads libbrotlienc at runtime — no compile-time dependency.
+// Loads libbrotlienc at runtime - no compile-time dependency.
 // When the library is absent, IsAvailable returns False and compression is skipped.
 //
-// Encoder: BrotliEncoderCompress  — used by the server for response compression.
-// Decoder: BrotliDecoderDecompress — loaded from libbrotlidec; used in tests only.
+// Encoder: BrotliEncoderCompress  - used by the server for response compression.
+// Decoder: BrotliDecoderDecompress - loaded from libbrotlidec; used in tests only.
 
 interface
 

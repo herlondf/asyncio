@@ -1,10 +1,10 @@
-unit Poseidon.Tests.Brotli;
+﻿unit Poseidon.Tests.Brotli;
 
 // DUnitX tests for Brotli compression support (#30).
 //
 // Tests are split into two groups:
-//   1. Unit tests for TPoseidonBrotli lazy-loader — always run.
-//   2. Integration tests against a live server — only when the Brotli
+//   1. Unit tests for TPoseidonBrotli lazy-loader - always run.
+//   2. Integration tests against a live server - only when the Brotli
 //      encoder library is available at runtime (TPoseidonBrotli.IsAvailable).
 //      When the library is absent, tests pass with an informational message
 //      (DUnitX in this build has no Assert.Ignore; Assert.Pass is used instead).
@@ -77,9 +77,7 @@ uses
   Poseidon.Net.HttpServer,
   Poseidon.Net.Types;
 
-// ---------------------------------------------------------------------------
 // Helper: 2KB JSON body guaranteed to exceed the 1KB compression threshold
-// ---------------------------------------------------------------------------
 
 function _MakeLargeBody: TBytes;
 var
@@ -89,9 +87,7 @@ begin
   Result := TEncoding.UTF8.GetBytes(LJson);
 end;
 
-// ---------------------------------------------------------------------------
 // TBrotliUnitTests
-// ---------------------------------------------------------------------------
 
 procedure TBrotliUnitTests.IsAvailable_DoesNotRaise;
 var
@@ -115,7 +111,7 @@ var
 begin
   if TPoseidonBrotli.IsAvailable then
   begin
-    Assert.Pass('Brotli encoder is present — unavailability test not applicable');
+    Assert.Pass('Brotli encoder is present - unavailability test not applicable');
     Exit;
   end;
   LRaised := False;
@@ -133,7 +129,7 @@ var
 begin
   if TPoseidonBrotli.IsDecoderAvailable then
   begin
-    Assert.Pass('Brotli decoder is present — unavailability test not applicable');
+    Assert.Pass('Brotli decoder is present - unavailability test not applicable');
     Exit;
   end;
   LRaised := False;
@@ -153,16 +149,16 @@ var
 begin
   if not TPoseidonBrotli.IsAvailable then
   begin
-    Assert.Pass('Brotli encoder not available — round-trip test skipped');
+    Assert.Pass('Brotli encoder not available - round-trip test skipped');
     Exit;
   end;
   if not TPoseidonBrotli.IsDecoderAvailable then
   begin
-    Assert.Pass('Brotli decoder not available — round-trip test skipped');
+    Assert.Pass('Brotli decoder not available - round-trip test skipped');
     Exit;
   end;
   LOriginal   := TEncoding.UTF8.GetBytes(
-    'Poseidon HTTP server — Brotli round-trip. ' + StringOfChar('A', 256));
+    'Poseidon HTTP server - Brotli round-trip. ' + StringOfChar('A', 256));
   LCompressed := TPoseidonBrotli.Compress(LOriginal, 6);
   LRestored   := TPoseidonBrotli.Decompress(LCompressed);
   Assert.AreEqual(Length(LOriginal), Length(LRestored),
@@ -180,12 +176,12 @@ var
 begin
   if not TPoseidonBrotli.IsAvailable then
   begin
-    Assert.Pass('Brotli encoder not available — skipped');
+    Assert.Pass('Brotli encoder not available - skipped');
     Exit;
   end;
   if not TPoseidonBrotli.IsDecoderAvailable then
   begin
-    Assert.Pass('Brotli decoder not available — skipped');
+    Assert.Pass('Brotli decoder not available - skipped');
     Exit;
   end;
   LOriginal   := TEncoding.UTF8.GetBytes(StringOfChar('B', 512));
@@ -203,12 +199,12 @@ var
 begin
   if not TPoseidonBrotli.IsAvailable then
   begin
-    Assert.Pass('Brotli encoder not available — skipped');
+    Assert.Pass('Brotli encoder not available - skipped');
     Exit;
   end;
   if not TPoseidonBrotli.IsDecoderAvailable then
   begin
-    Assert.Pass('Brotli decoder not available — skipped');
+    Assert.Pass('Brotli decoder not available - skipped');
     Exit;
   end;
   LOriginal   := TEncoding.UTF8.GetBytes(StringOfChar('C', 512));
@@ -218,9 +214,7 @@ begin
     TEncoding.UTF8.GetString(LRestored));
 end;
 
-// ---------------------------------------------------------------------------
 // TBrotliServerTests helpers
-// ---------------------------------------------------------------------------
 
 type
   TBrotliServerCtx = record
@@ -288,9 +282,7 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
 // TBrotliServerTests
-// ---------------------------------------------------------------------------
 
 procedure TBrotliServerTests.BrotliEnabled_AcceptBr_Returns_ContentEncodingBr;
 var
@@ -299,7 +291,7 @@ var
 begin
   if not TPoseidonBrotli.IsAvailable then
   begin
-    Assert.Pass('Brotli encoder not available — server test skipped');
+    Assert.Pass('Brotli encoder not available - server test skipped');
     Exit;
   end;
   _StartBrotliServer(LCtx, True);
@@ -350,7 +342,7 @@ var
 begin
   if not TPoseidonBrotli.IsAvailable then
   begin
-    Assert.Pass('Brotli encoder not available — q-value test skipped');
+    Assert.Pass('Brotli encoder not available - q-value test skipped');
     Exit;
   end;
   _StartBrotliServer(LCtx, True);

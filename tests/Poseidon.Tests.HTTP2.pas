@@ -1,15 +1,15 @@
-unit Poseidon.Tests.HTTP2;
+﻿unit Poseidon.Tests.HTTP2;
 
 // DUnitX tests for the HTTP/2 implementation.
 //
-// Fixture 1 — TPoseidonHTTP2Tests (port 19002, requires OpenSSL):
+// Fixture 1 - TPoseidonHTTP2Tests (port 19002, requires OpenSSL):
 //   Integration tests via ALPN "h2" over TLS.
 //   Generate certificate once:
 //     openssl req -x509 -newkey rsa:2048 -keyout tests\certs\test-server.key
 //       -out tests\certs\test-server.crt -days 3650 -nodes -subj "/CN=127.0.0.1"
 //   Tests skip automatically when OpenSSL is not available.
 //
-// Fixture 2 — TH2ConnUnitTests (no network, no SSL):
+// Fixture 2 - TH2ConnUnitTests (no network, no SSL):
 //   Unit tests of TH2Conn protocol layer directly.
 //   Covers: preface, SETTINGS ACK, PING/PONG, WINDOW_UPDATE (A-3),
 //           RST_STREAM (R-2 adjacent), GOAWAY on demand, frame parsing.
@@ -56,11 +56,11 @@ type
     [Test]
     procedure Ping_ClientSendsPing_ServerRepliesWithPong;
 
-    // WINDOW_UPDATE — connection level (A-3)
+    // WINDOW_UPDATE - connection level (A-3)
     [Test]
     procedure WindowUpdate_ConnectionLevel_DoesNotClose;
 
-    // WINDOW_UPDATE — stream level (A-3)
+    // WINDOW_UPDATE - stream level (A-3)
     [Test]
     procedure WindowUpdate_StreamLevel_DoesNotClose;
 
@@ -68,11 +68,11 @@ type
     [Test]
     procedure RstStream_ClientSendsRst_StreamDropped;
 
-    // GOAWAY — server initiates
+    // GOAWAY - server initiates
     [Test]
     procedure GoAway_ServerInitiated_SetsGoAwaySent;
 
-    // GOAWAY — client sends GOAWAY
+    // GOAWAY - client sends GOAWAY
     [Test]
     procedure GoAway_ClientSendsGoAway_ConnectionAccepted;
 
@@ -90,7 +90,7 @@ type
     [Test]
     procedure Settings_InitialWindowSize_CustomValue_EncodedInFrame;
 
-    // Preface — invalid magic
+    // Preface - invalid magic
     [Test]
     procedure Preface_InvalidMagic_SendsGoAway;
 
@@ -108,7 +108,7 @@ type
     [Test]
     procedure Continuation_WithoutPriorHeaders_GoAway;
 
-    // GOAWAY — no active streams → FCloseProc called immediately
+    // GOAWAY - no active streams → FCloseProc called immediately
     [Test]
     procedure GoAway_NoStreams_CloseProcCalledImmediately;
 
@@ -116,7 +116,7 @@ type
     [Test]
     procedure RstStream_IdleStream_ConnectionError;
 
-    // Server push — PUSH_PROMISE + promised response sent before reply
+    // Server push - PUSH_PROMISE + promised response sent before reply
     [Test]
     procedure ServerPush_OnePushResource_SendsPushPromiseThenResponse;
 
@@ -201,7 +201,7 @@ begin
   GH2Server.Listen('127.0.0.1', INTEST_PORT, TestH2Handler, TestH2ListenReady);
 end;
 
-// Certificate validator — accepts any certificate for self-signed test certs.
+// Certificate validator - accepts any certificate for self-signed test certs.
 procedure AcceptAllCertificates(const Sender: TObject;
   const ARequest: TURLRequest; const Certificate: TCertificate;
   var Accepted: Boolean);
@@ -215,7 +215,7 @@ procedure TPoseidonHTTP2Tests.EnsureSSL;
 begin
   if not FSSLAvail then
     // DUnitX has no Assert.Ignore in this version; Pass skips without failure.
-    Assert.Pass('OpenSSL not available — HTTP/2 test skipped');
+    Assert.Pass('OpenSSL not available - HTTP/2 test skipped');
 end;
 
 procedure TPoseidonHTTP2Tests.SetupFixture;
@@ -306,13 +306,11 @@ begin
   end;
 end;
 
-// =============================================================================
-// Fixture 2 — TH2ConnUnitTests
+// Fixture 2 - TH2ConnUnitTests
 //
 // Helpers:
-//   BuildFrame(AType, AFlags, AStreamID, APayload) → TBytes — raw H2 frame
+//   BuildFrame(AType, AFlags, AStreamID, APayload) → TBytes - raw H2 frame
 //   The client preface is the 24-byte magic PRI string + a SETTINGS frame.
-// =============================================================================
 
 // H2 frame type constants (local copy to avoid dependency on non-public consts)
 const
@@ -354,7 +352,7 @@ begin
     Move(APayload[0], Result[9], LLen);
 end;
 
-// Build a SETTINGS frame with no parameters (empty body — used as ACK or bare)
+// Build a SETTINGS frame with no parameters (empty body - used as ACK or bare)
 function H2BuildSettings(AFlags: Byte = 0): TBytes;
 begin
   Result := H2BuildFrame(H2T_SETTINGS, AFlags, 0, nil);
@@ -485,9 +483,7 @@ begin
   Move(LSettings[0], Result[Length(LMagic)],  Length(LSettings));
 end;
 
-// ---------------------------------------------------------------------------
-// Test harness — captures bytes sent by TH2Conn via the send callback
-// ---------------------------------------------------------------------------
+// Test harness - captures bytes sent by TH2Conn via the send callback
 
 type
   TH2ExtraArr = TArray<TPair<string,string>>;
@@ -779,7 +775,7 @@ begin
     LH.ClearSent;
 
     // Force a GOAWAY by feeding a frame that violates protocol
-    // (e.g., DATA frame on stream 0 — reserved, must be stream > 0)
+    // (e.g., DATA frame on stream 0 - reserved, must be stream > 0)
     // We just call _GoAway indirectly by destroying; but we can also
     // verify that GoAwaySent starts as False and the conn stays healthy.
     Assert.IsFalse(LH.H2.GoAwaySent,
@@ -813,7 +809,7 @@ begin
   LH := TH2TestHarness.Create;
   try
     LH.Feed(H2ClientPreface);
-    // Client sends GOAWAY — server should accept it gracefully (no crash, no AV)
+    // Client sends GOAWAY - server should accept it gracefully (no crash, no AV)
     LH.Feed(H2BuildGoAway(0, 0 {NO_ERROR}));
     // The connection object should still be alive (closed flag may or may not be set)
     // At minimum: no exception/AV during feed
@@ -938,9 +934,7 @@ begin
   end;
 end;
 
-// =============================================================================
-// Additional TH2ConnUnitTests — issue #15 coverage
-// =============================================================================
+// Additional TH2ConnUnitTests - issue #15 coverage
 
 // HPACK static table entries used in HEADERS frames (RFC 7541 Appendix A):
 //   index 2 (0x82) = :method: GET
@@ -1027,7 +1021,7 @@ begin
   LH := TH2TestHarness.Create;
   try
     LH.Feed(H2ClientPreface);
-    // HEADERS stream 1: END_HEADERS (0x04) only — body follows.
+    // HEADERS stream 1: END_HEADERS (0x04) only - body follows.
     // :method=POST, :path=/, :scheme=http, :authority="localhost" (RFC 7540 §8.1.2.3).
     LHpack := TBytes.Create($83, $84, $86,
       $01, $09, $6C, $6F, $63, $61, $6C, $68, $6F, $73, $74);
@@ -1056,7 +1050,7 @@ begin
   try
     LH.Feed(H2ClientPreface);
     LH.ClearSent;
-    // CONTINUATION for stream 1 — FContinStreamID=0 so 1≠0 → PROTOCOL_ERROR
+    // CONTINUATION for stream 1 - FContinStreamID=0 so 1≠0 → PROTOCOL_ERROR
     LH.Feed(H2BuildFrame(H2T_CONTINUATION, $04, 1,
       TBytes.Create($82)  {trivial HPACK byte}));
     Assert.IsTrue(H2HasGoAway(LH.SentBytes),
@@ -1085,7 +1079,7 @@ begin
 end;
 
 procedure TH2ConnUnitTests.RstStream_IdleStream_ConnectionError;
-// RFC 7540 §5.1 — RST_STREAM on an IDLE stream (an id never opened and above
+// RFC 7540 §5.1 - RST_STREAM on an IDLE stream (an id never opened and above
 // the highest seen) MUST be treated as a connection error PROTOCOL_ERROR.
 // h2spec http2/6.4 enforces this.
 var
@@ -1177,7 +1171,7 @@ procedure TH2ConnUnitTests.RstOfBufferedStream_CompletesDeferredGoAwayClose;
 // Item-2 lifetime regression. With the peer's INITIAL_WINDOW_SIZE=0 the response
 // DATA cannot be sent and is buffered (stream stays alive, FActiveStreams still
 // incremented). A client GOAWAY then defers the close. RST of that buffered
-// stream must decrement FActiveStreams and complete the deferred close — before
+// stream must decrement FActiveStreams and complete the deferred close - before
 // the fix FActiveStreams leaked and the close never fired.
 var
   LH:     TH2TestHarness;
@@ -1207,7 +1201,7 @@ begin
 end;
 
 initialization
-  // TPoseidonHTTP2Tests: SSL+ALPN integration tests — requires WinHTTP HTTP/2
+  // TPoseidonHTTP2Tests: SSL+ALPN integration tests - requires WinHTTP HTTP/2
   // support + a cert accepted by Windows SSPI. Disabled until #issue-HTTP2-CI
   // is resolved; tests pass manually when OpenSSL + correct cert are present.
   // TDUnitX.RegisterTestFixture(TPoseidonHTTP2Tests);

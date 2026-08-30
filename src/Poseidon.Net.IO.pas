@@ -1,6 +1,6 @@
-unit Poseidon.Net.IO;
+﻿unit Poseidon.Net.IO;
 
-// IIOCallbacks and IIOBackend — contracts between TPoseidonNativeServer and the
+// IIOCallbacks and IIOBackend - contracts between TPoseidonNativeServer and the
 // platform-specific IO backends (IOCP on Windows, epoll on Linux).
 // R-1: extracted from Poseidon.Net.HttpServer to enforce SRP. HttpServer now has
 // zero platform-specific {$IFDEF} blocks in its method bodies.
@@ -30,7 +30,7 @@ type
     procedure OnConnError(AConn: Pointer);
   end;
 
-  // Platform IO backend — implemented by TIOCPBackend (Windows) and TEpollBackend (Linux).
+  // Platform IO backend - implemented by TIOCPBackend (Windows) and TEpollBackend (Linux).
   IIOBackend = interface
     ['{B2C3D4E5-F6A7-8901-BCDE-F12345678901}']
     // --- Lifecycle (call in order during Listen / Stop) ---
@@ -67,7 +67,7 @@ type
 
     // --- Per-connection ---
 
-    // Registers a new connection with the IO subsystem. Does NOT arm recv —
+    // Registers a new connection with the IO subsystem. Does NOT arm recv -
     // the server calls PostRecv explicitly in _OnNewSocket after this returns.
     // Called from server's _OnNewSocket after TNativeConn is created.
     procedure RegisterConn(AConn: Pointer);
@@ -79,7 +79,7 @@ type
     // Initiates an asynchronous send.
     procedure PostSend(AConn: Pointer; const AData: TBytes; AActualLen: Integer);
 
-    // #61: Vectored send — headers + body in one syscall, no concatenation.
+    // #61: Vectored send - headers + body in one syscall, no concatenation.
     // AHdrLen/ABodyLen: actual bytes to send (0 = use Length).
     procedure PostSendV(AConn: Pointer;
       const AHeaders: TBytes; AHdrLen: Integer;

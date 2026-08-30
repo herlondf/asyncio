@@ -1,6 +1,6 @@
-unit Poseidon.Tests.Heartbeat;
+﻿unit Poseidon.Tests.Heartbeat;
 
-// DUnitX integration test for the periodic [health] heartbeat line —
+// DUnitX integration test for the periodic [health] heartbeat line -
 // specifically the rss_kb field added to help diagnose memory growth in
 // production (issue #235). Proves the platform-specific process-memory
 // read (Winapi.PsAPI on Windows, /proc/self/status on Linux) actually
@@ -50,7 +50,7 @@ begin
   try
     LServer := TPoseidonNativeServer.Create;
     try
-      LServer.HeartbeatMs := 100;  // fast tick — this test should not take seconds
+      LServer.HeartbeatMs := 100;  // fast tick - this test should not take seconds
       LServer.OnLog :=
         procedure(ALevel: TLogLevel; const AMessage: string)
         begin

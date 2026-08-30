@@ -1,6 +1,6 @@
-unit Poseidon.Mock.SSLProvider;
+﻿unit Poseidon.Mock.SSLProvider;
 
-// TSpySSLProvider — test double for ISSLProvider (#25).
+// TSpySSLProvider - test double for ISSLProvider (#25).
 //
 // Records every method call and exposes them via CallLog: TArray<string>.
 // Key configurable fields control return values so tests can exercise
@@ -34,9 +34,7 @@ type
     function _Alloc(const AName: string): Pointer;
     procedure _Log(const AMsg: string);
   public
-    // -----------------------------------------------------------------------
     // Configurable return values
-    // -----------------------------------------------------------------------
     Available:          Boolean;       // IsAvailable result (default True)
     HandshakeResult:    Integer;       // DoHandshake return (default 1 = done)
     HandshakeError:     Integer;       // GetError return when handshake fails
@@ -50,16 +48,12 @@ type
     constructor Create;
     destructor  Destroy; override;
 
-    // -----------------------------------------------------------------------
     // Inspection
-    // -----------------------------------------------------------------------
     function CallLog: TArray<string>;
     function WasCalled(const AMethod: string): Boolean;
     procedure ClearLog;
 
-    // -----------------------------------------------------------------------
     // ISSLProvider
-    // -----------------------------------------------------------------------
     function  IsAvailable: Boolean;
     procedure EnsureLoaded;
     function  NewContext: Pointer;
@@ -142,9 +136,7 @@ begin
   FLog.Clear;
 end;
 
-// -----------------------------------------------------------------------
 // ISSLProvider implementation
-// -----------------------------------------------------------------------
 
 function TSpySSLProvider.IsAvailable: Boolean;
 begin
@@ -271,7 +263,7 @@ begin
   _Log('SSLRead');
   if Length(SSLReadData) = 0 then
   begin
-    Result := -1;   // no data — simulate SSL_ERROR_WANT_READ
+    Result := -1;   // no data - simulate SSL_ERROR_WANT_READ
     Exit;
   end;
   LCopy := Min(ALen, Length(SSLReadData));

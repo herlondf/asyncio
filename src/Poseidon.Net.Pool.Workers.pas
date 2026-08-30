@@ -1,46 +1,19 @@
-unit Poseidon.Net.Pool.Workers;
+﻿unit Poseidon.Net.Pool.Workers;
 
-// TElasticWorkerPool — elastic thread pool for blocking request handlers.
+// TElasticWorkerPool runs blocking request handlers, kept separate from the IO
+// workers on purpose. When IO workers doubled as handlers, a DB-bound workload
+// blocked all of them and throughput capped at the IO worker count: 300
+// concurrent users, 16 requests actually moving. So the IO tier stays small and
+// fixed while this one starts at MinWorkers, grows to MaxWorkers under load, and
+// lets anything above MinWorkers self-terminate after IdleTimeoutMs.
 //
-// Problem solved:
-//   IOCP/epoll IO workers previously doubled as request handlers. With DB-bound
-//   workloads (ACBr, ORM queries), all workers block on DB calls and new
-//   connections pile up until the worker count (WORKER_COUNT_MAX = 16) is
-//   saturated. Under 300 concurrent users, only 16 requests proceed at once.
+// Thread safety: FQueue under FQueueCS; FActiveWorkers/FIdleWorkers atomic;
+// FShutdown written once by Shutdown and only read by workers.
 //
-// Solution:
-//   Decouple IO workers (small, fixed, auto-computed) from request workers
-//   (elastic: start small, grow under load, shrink back when idle).
-//
-//     MinWorkers:    threads kept alive at all times (default = auto, matches IO workers).
-//     MaxWorkers:    peak threads spawned under load (default 200).
-//     IdleTimeoutMs: workers above MinWorkers self-terminate after this many ms idle.
-//
-//   At startup, MinWorkers threads are created — same count as before the fix,
-//   so the Delphi debugger sees the same low thread count and starts fast.
-//   Under load, new workers are spawned on demand up to MaxWorkers.
-//   When load drops, workers above MinWorkers exit after IdleTimeoutMs.
-//
-// Thread lifecycle:
-//   Spawn: called by Post() when IdleWorkers=0 and ActiveWorkers < MaxWorkers.
-//          Also called MinWorkers times in Create() to seed the pool.
-//   Idle-exit: worker with wrTimeout from semaphore attempts a CAS on
-//              FActiveWorkers to claim an exit slot (only when > MinWorkers).
-//   Shutdown: FShutdown flag + semaphore Release(N) wakes all workers; they
-//             check the flag and break from their loop.
-//
-// Thread safety:
-//   FQueue   — protected by FQueueCS (TCriticalSection).
-//   FActiveWorkers / FIdleWorkers — atomic via TInterlocked.
-//   FShutdown — written once (Shutdown); workers only read it.
-//
-// Compiler note:
-//   dcc32 has a known bug: TQueue<T> where T is 'reference to procedure' resolves
-//   the element type as 'procedure of object', breaking Enqueue/Dequeue.
-//   Workaround: TWorkWrapper class holds the closure; TQueue<TWorkWrapper> compiles
-//   cleanly on both Win32 and Win64.
-//   TInterlocked.Read has only the Int64 overload on dcc32; TInterlocked.Add(X, 0)
-//   is the portable atomic-read idiom for Integer fields.
+// Two compiler workarounds live here. dcc32 resolves TQueue<reference to
+// procedure> as 'procedure of object' and breaks Enqueue/Dequeue, so TWorkWrapper
+// carries the closure. And TInterlocked.Read is Int64-only on dcc32, so Integer
+// fields use TInterlocked.Add(X, 0) as the portable atomic read.
 
 interface
 
@@ -61,7 +34,7 @@ uses
 type
   {$IFDEF FPC}
   // FPC: a plain method pointer (procedure of object), NOT a function reference.
-  // Callers post `SomeObject.Method`, which binds the object BY VALUE — no
+  // Callers post `SomeObject.Method`, which binds the object BY VALUE - no
   // capture frame. FPC 3.3.1's function-reference adaptation of a method AVs
   // when built on an IOCP worker thread and, worse, captures the caller's local
   // variable by reference (garbage after it returns). A method pointer sidesteps
@@ -98,9 +71,9 @@ type
     FDequeCount: Integer;
     FNextDeque: Integer;  // atomic round-robin counter for Post()
     FPadNextDeque: array[0..14] of Integer;
-    FActiveWorkers: Integer;  // atomic — total alive threads (including idle)
+    FActiveWorkers: Integer;  // atomic - total alive threads (including idle)
     FPadActive: array[0..14] of Integer;
-    FIdleWorkers: Integer;  // atomic — threads blocked on semaphore
+    FIdleWorkers: Integer;  // atomic - threads blocked on semaphore
     FPadIdle: array[0..14] of Integer;
     FSemaphore:     TSemaphore;
     FShutdown:      Integer;  // 0=running, 1=shutdown; atomic via TInterlocked
@@ -119,7 +92,7 @@ type
     // Safe to call multiple times. Subsequent calls are no-ops.
     // Returns True if all workers actually drained within the timeout; False
     // if it broke on timeout with stragglers still running (caller must NOT
-    // free state those stragglers may still touch — e.g. SSL handles). #177
+    // free state those stragglers may still touch - e.g. SSL handles). #177
     function Shutdown(ATimeoutMs: Integer = 30000): Boolean;
 
     property ActiveWorkers: Integer read FActiveWorkers;
@@ -134,28 +107,18 @@ uses
   Poseidon.Net.ResponseBuilder;
 
 var
-  // #234: on POSIX, Delphi's case-insensitive string compare (AnsiCompareText
-  // and friends) is backed by ICU. The per-thread collator cache
-  // (System.Internal.ICU's CollatorCache) is a threadvar -- NOT shared, so
-  // that part is already safe by design. But that also means EVERY freshly
-  // spawned worker thread starts with an EMPTY cache, and its first
-  // case-insensitive compare (e.g. CORS middleware checking for a duplicate
-  // response header via TStrings.IndexOfName) falls through to the
-  // underlying native ICU library's OWN cold-start path (opening a
-  // collator for the first time), which touches genuinely process-shared
-  // native state (icu_XX::UnifiedCache) — confirmed via Helgrind to race
-  // there under load: many new workers spawned in a burst can all hit that
-  // native cold path concurrently. Serializing just the FIRST such call per
-  // worker thread (this lock) removes the concurrency without needing to
-  // touch or trust ICU's own internal locking.
+  // #234: on POSIX, case-insensitive compare goes through ICU. Its collator
+  // cache is a threadvar, so each new worker starts empty and its first compare
+  // falls into ICU's own cold-start path, which touches process-shared state
+  // (icu_XX::UnifiedCache). Helgrind confirmed workers spawned in a burst racing
+  // there. Serializing only that first call per thread removes the race without
+  // trusting ICU's internal locking.
   GThreadLocaleWarmUpLock: TCriticalSection;
 
 { TElasticWorkerPool }
 
-// #234: forces this thread's own ICU collator cache to populate now, under
-// a process-wide lock, instead of letting it happen lazily and concurrently
-// with sibling worker threads doing the same the first time each of them
-// runs a case-insensitive string compare.
+// #234: populates this thread's ICU collator cache now, under the lock, instead
+// of lazily and concurrently with sibling workers.
 procedure TElasticWorkerPool._WarmUpThreadLocaleCache;
 begin
   GThreadLocaleWarmUpLock.Enter;
@@ -189,7 +152,6 @@ begin
   end;
 
   FSemaphore := TSemaphore.Create(nil, 0, MaxInt, '');
-  // Seed minimum workers — each assigned to its own deque
   for I := 0 to FMinWorkers - 1 do
     _SpawnWorker(I mod FDequeCount);
 end;
@@ -209,9 +171,8 @@ begin
 end;
 
 {$IFDEF FPC}
-// FPC: a TThread subclass instead of CreateAnonymousThread(closure). _SpawnWorker
-// runs from Post on an IOCP worker thread; FPC 3.3.1 AVs constructing a capturing
-// closure there. A subclass carries the deque index in a field — no closure.
+// FPC 3.3.1 AVs constructing a capturing closure from Post on an IOCP worker
+// thread, so this is a TThread subclass carrying the deque index in a field.
 type
   TFPCPoolWorker = class(TThread)
   public
@@ -289,36 +250,23 @@ begin
   LDeque := @FDeques[ADequeIdx];
   LIdleAccumMs := 0;
   try
-    // If shutdown happened between _SpawnWorker and here, exit immediately.
     if TInterlocked.Add(FShutdown, 0) <> 0 then Exit;
     _WarmUpThreadLocaleCache;
     while True do
     begin
-      // #224 root cause: the semaphore is a single global counter, not
-      // per-deque — a Release() for an item just enqueued into OUR deque can
-      // be consumed by ANY OTHER waiting worker, whose own check succeeds on
-      // a DIFFERENT deque first and who therefore never looks at ours. That
-      // was harmless under sustained load (a later Post() eventually wakes
-      // someone who steals it) but once traffic stops, every subsequent
-      // wake-up for every worker is a bare wrTimeout with no signal at all,
-      // and a bare timeout never checked this deque or attempted a steal —
-      // so a work item stranded at the exact moment traffic stopped was lost
-      // forever. Confirmed via a tagged live repro (Post() logged the item
-      // going into deque N; no own-deque hit or steal for that tag was ever
-      // logged again, even after 40+ seconds) and a measured ~7-in-92000
-      // in-flight leak rate during sustained load itself.
+      // #224: the semaphore is one global counter, not per-deque, so a Release
+      // for an item enqueued into OUR deque can be consumed by another worker
+      // that finds work elsewhere and never looks here. Under sustained load a
+      // later Post eventually wakes someone who steals it, but once traffic
+      // stops every wake is a bare timeout, and a bare timeout used to check
+      // nothing - an item stranded exactly when traffic stopped was lost for
+      // good. A tagged repro showed the item entering deque N and never being
+      // hit or stolen again after 40s; sustained load leaked ~7 in 92000.
       //
-      // Fix: wait in short CSweepIntervalMs slices instead of one long
-      // FIdleTimeoutMs block, checking our own deque (and stealing if empty)
-      // after EVERY slice, signaled or timed out. A stranded item is now
-      // found within one sweep interval instead of only when this specific
-      // worker's full idle timeout happens to elapse — the first fix (commit
-      // before this one) already guaranteed eventual recovery, but only
-      // within FIdleTimeoutMs (30s default), which is a real fix but a poor
-      // user-visible latency for what's supposed to be a fast path. Scale-down
-      // eligibility still only kicks in once accumulated idle time (across
-      // consecutive empty slices) reaches FIdleTimeoutMs, so shrink timing
-      // for the elastic pool is unchanged.
+      // So the wait runs in CSweepIntervalMs slices, checking our own deque and
+      // stealing after every slice, signaled or not. Recovery is now one sweep
+      // interval instead of a full FIdleTimeoutMs (30s). Scale-down still needs
+      // accumulated idle to reach FIdleTimeoutMs, so shrink timing is unchanged.
       TInterlocked.Increment(FIdleWorkers);
       LWaitMs := CSweepIntervalMs;
       if LWaitMs > FIdleTimeoutMs then LWaitMs := FIdleTimeoutMs;
@@ -358,19 +306,18 @@ begin
 
       if LResult = wrSignaled then
       begin
-        // Someone else's Release() woke us but both our own deque and every
-        // other deque came up empty (already claimed by a faster worker) --
-        // genuine activity, not idle time; don't count this slice.
+        // Woken by someone else's Release but every deque was already claimed:
+        // that is activity, not idle time. Don't count this slice.
         LIdleAccumMs := 0;
         Continue;
       end;
 
-      // wrTimeout with nothing found anywhere -- one more idle slice.
+      // Nothing found anywhere: one more idle slice.
       Inc(LIdleAccumMs, LWaitMs);
       if LIdleAccumMs < FIdleTimeoutMs then Continue;
 
-      // Accumulated a full idle timeout with no work ever found -- attempt to
-      // self-terminate while staying above the minimum.
+      // A full idle timeout with no work: try to self-terminate, staying above
+      // the minimum.
       repeat
         LCurActive := TInterlocked.Add(FActiveWorkers, 0);
         if LCurActive <= FMinWorkers then Break;
@@ -413,20 +360,15 @@ var
   LActive: Integer;
   LDequeIdx: Integer;
 begin
-  // Plain aligned Integer reads are atomic on x64. FShutdown/FIdleWorkers/
-  // FActiveWorkers are only read here as a hint (shutdown flag + spawn
-  // heuristic), so a locked read (LOCK XADD) is unnecessary — it just dirties
-  // the cache line and ping-pongs it across IO threads on every Post.
+  // Aligned Integer reads are atomic on x64, and these three are only hints
+  // here (shutdown flag, spawn heuristic). A locked read would just dirty the
+  // cache line and ping-pong it across IO threads on every Post.
   if FShutdown <> 0 then
   begin
-    // A caller always pairs an AddRef (or equivalent counter Increment) with
-    // AWork BEFORE calling Post — the closure's own try/finally is what does
-    // the paired Release (see Shutdown()'s drain loop below, which runs
-    // already-queued closures synchronously for the exact same reason).
-    // A plain Exit here, dropping AWork silently, leaks that refcount/counter
-    // forever whenever a caller loses the race against Shutdown() flipping
-    // FShutdown between the caller's AddRef and this call — the connection
-    // never reaches refcount 0, no crash, just RAM that never comes back.
+    // Callers AddRef before Post and the closure's own try/finally does the
+    // paired Release. Dropping AWork silently here would leak that ref whenever
+    // a caller loses the race against Shutdown flipping FShutdown: no crash,
+    // just a connection that never reaches refcount 0.
     try
       AWork();
     except
@@ -450,7 +392,6 @@ begin
 
   FSemaphore.Release(1);
 
-  // Spawn a new worker when all existing workers are busy and below max.
   LIdle := FIdleWorkers;
   LActive := FActiveWorkers;
   if (LIdle = 0) and (LActive < FMaxWorkers) then
@@ -469,7 +410,6 @@ begin
     Exit(TInterlocked.Add(FActiveWorkers, 0) = 0);
   TInterlocked.Exchange(FShutdown, 1);
 
-  // Wake all blocked workers so they check FShutdown and exit cleanly.
   LActive := TInterlocked.Add(FActiveWorkers, 0);
   if LActive > 0 then
     FSemaphore.Release(LActive);
@@ -478,22 +418,15 @@ begin
   while TInterlocked.Add(FActiveWorkers, 0) > 0 do
   begin
     if Int64(TThread.GetTickCount64) - LStart >= ATimeoutMs then Break;
-    // Release extra signals in case new workers were spawned after the
-    // initial Release(LActive) above — they need a signal to wake up
-    // and see FShutdown=1.
+    // Extra signals for workers spawned after the Release(LActive) above.
     FSemaphore.Release(1);
     Sleep(10);
   end;
 
-  // Drain un-executed work from all deques.
-  //
-  // Callers pair an AddRef (or equivalent counter Increment) with the closure
-  // BEFORE Post — the closure's own try/finally is what does the paired Release.
-  // Dropping the wrapper without running the closure leaks the refcount and
-  // leaves in-flight counters permanently non-zero. So we execute the closure
-  // synchronously here on the shutdown thread; the closure body is short
-  // (dispatch already refuses new work when FShutdown=1 higher up the stack,
-  // and any exception is swallowed like in the normal worker loop).
+  // Dropping a queued wrapper without running it leaks the AddRef the caller
+  // paired with Post, so the closures run synchronously here on the shutdown
+  // thread. Their bodies are short: dispatch already refuses new work once
+  // FShutdown is set, and exceptions are swallowed as in the worker loop.
   for I := 0 to FDequeCount - 1 do
   begin
     repeat

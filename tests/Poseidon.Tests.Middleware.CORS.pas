@@ -1,4 +1,4 @@
-unit Poseidon.Tests.Middleware.CORS;
+﻿unit Poseidon.Tests.Middleware.CORS;
 
 interface
 
@@ -105,7 +105,7 @@ var
   LOpts: TCORSOptions;
 begin
   LOpts := DefaultCORSOptions;
-  // Credentials require an explicit origin — '*' + credentials is rejected by
+  // Credentials require an explicit origin - '*' + credentials is rejected by
   // the spec (and now by the middleware), so the valid config uses a real origin.
   LOpts.AllowOrigin := 'https://example.com';
   LOpts.AllowCredentials := True;

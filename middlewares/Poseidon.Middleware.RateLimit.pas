@@ -1,4 +1,4 @@
-unit Poseidon.Middleware.RateLimit;
+﻿unit Poseidon.Middleware.RateLimit;
 
 // In-memory IP-based rate limiter (fixed window). Thread-safe.
 //
@@ -30,7 +30,7 @@ uses
   Poseidon.Net.Security;
 
 const
-  // Longest textual IP (IPv6 with embedded IPv4 + zone) is 45 chars — an
+  // Longest textual IP (IPv6 with embedded IPv4 + zone) is 45 chars - an
   // X-Forwarded-For token longer than this is not a real address; cap it so a
   // malicious multi-KB XFF value can't bloat per-entry key memory (#209).
   CMaxKeyLen = 45;
@@ -94,7 +94,7 @@ begin
           if LXFF <> '' then
           begin
             LIP := LXFF.Split([','])[0].Trim;
-            // Reject an implausible (empty/oversized) XFF token — a client-
+            // Reject an implausible (empty/oversized) XFF token - a client-
             // controlled multi-KB value would otherwise become a huge map key.
             if (LIP = '') or (Length(LIP) > CMaxKeyLen) then
               LIP := ACtx.RemoteAddr;

@@ -1,10 +1,10 @@
-unit Poseidon.MemoryManager.Linux;
+﻿unit Poseidon.MemoryManager.Linux;
 
 // Replaces Delphi's default FastMM memory manager with libc malloc/free on Linux.
 //
 // WHY: FastMM uses global heap locks that create severe contention under high
 // concurrency on Linux. glibc malloc uses per-thread arenas (ptmalloc2) that
-// scale linearly with core count — the same approach FPC uses via its `cmem`
+// scale linearly with core count - the same approach FPC uses via its `cmem`
 // unit that achieves 8.6x more throughput than Delphi's FastMM.
 //
 // USAGE: This unit MUST be the FIRST unit in the .dpr uses clause:
@@ -54,7 +54,7 @@ begin
 end;
 
 // Stub hooks para leak tracking. Retornam False (nao rastreado). NAO alocam
-// via o proprio MM — o RTL invoca esses ponteiros durante shutdown/relatorio
+// via o proprio MM - o RTL invoca esses ponteiros durante shutdown/relatorio
 // de leaks; nil aqui causa AV.
 function LibcRegisterExpectedMemoryLeak(P: Pointer): Boolean;
 begin
@@ -89,7 +89,7 @@ interface
 
 implementation
 
-// Windows: no-op — FastMM remains active
+// Windows: no-op - FastMM remains active
 
 {$ENDIF}
 

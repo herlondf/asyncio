@@ -1,6 +1,6 @@
-unit Poseidon.Net.SSL.Manager;
+﻿unit Poseidon.Net.SSL.Manager;
 
-// TSSLManager — SSL/TLS configuration: context creation, SNI, mTLS.
+// TSSLManager - SSL/TLS configuration: context creation, SNI, mTLS.
 //
 // Extracted from TPoseidonNativeServer. Owns FSSLCtx, FCertCtxByHost,
 // FSSLEnabled, FMinTLSVersion. Runtime SSL I/O (_EncryptAndSend,
@@ -55,7 +55,7 @@ type
     property CertCtxByHost: TDictionary<string, Pointer> read FCertCtxByHost;
   end;
 
-// SNI callback — used as SSL_CTX callback. AArg = TSSLManager instance.
+// SNI callback - used as SSL_CTX callback. AArg = TSSLManager instance.
 function SSLManagerSNICallback(ASSL: Pointer; AD: PInteger; AArg: Pointer): Integer; cdecl;
 
 implementation
@@ -126,7 +126,7 @@ begin
   FSSLProvider.SetMinVersion(FSSLCtx, FMinTLSVersion);
   FSSLProvider.SetSecurityOptions(FSSLCtx);
   FSSLProvider.EnableSessionCache(FSSLCtx);
-  // SNI callback — uses Self (TSSLManager) as arg
+  // SNI callback - uses Self (TSSLManager) as arg
   FSSLProvider.SetSNICallback(FSSLCtx, @SSLManagerSNICallback, Self);
   if AH2Enabled then
     FSSLProvider.SetALPN(FSSLCtx, AServerRef);
@@ -169,7 +169,7 @@ begin
     FSSLProvider.LoadCert(LCtx, ACertFile);
     FSSLProvider.LoadKey(LCtx, AKeyFile);
     FSSLProvider.VerifyKey(LCtx);
-    // #M8/#M7: replicate the default context's protocol setup — otherwise an
+    // #M8/#M7: replicate the default context's protocol setup - otherwise an
     // SNI-matched host silently loses ALPN (h2 -> HTTP/1.1 downgrade), the TLS
     // floor, and mTLS client-cert verification.
     FSSLProvider.SetMinVersion(LCtx, FMinTLSVersion);

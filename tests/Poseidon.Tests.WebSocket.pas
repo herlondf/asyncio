@@ -1,7 +1,7 @@
-unit Poseidon.Tests.WebSocket;
+﻿unit Poseidon.Tests.WebSocket;
 
 // DUnitX tests for TWebSocketUtils.
-// These tests exercise pure protocol functions — no network I/O required.
+// These tests exercise pure protocol functions - no network I/O required.
 // All assertions are based on RFC 6455 semantics and known test vectors.
 
 interface
@@ -18,7 +18,7 @@ type
     [Test]
     procedure HandshakeAccept_RFC6455TestVector_ReturnsExpectedBase64;
 
-    // BuildFrame — opcode byte (first byte = opcode | $80 for FIN)
+    // BuildFrame - opcode byte (first byte = opcode | $80 for FIN)
     [Test]
     procedure BuildFrame_TextOpcode_FirstByteIs81Hex;
     [Test]
@@ -26,7 +26,7 @@ type
     [Test]
     procedure BuildFrame_CloseOpcode_FirstByteIs88Hex;
 
-    // BuildFrame — length encoding
+    // BuildFrame - length encoding
     [Test]
     procedure BuildFrame_PayloadUnder126_UsesOneByteLengthField;
     [Test]
@@ -48,25 +48,25 @@ type
     [Test]
     procedure ParseFrame_InsufficientBytes_ReturnsFalse;
 
-    // BuildFrame — 64-bit length encoding (payload >= 65536)
+    // BuildFrame - 64-bit length encoding (payload >= 65536)
     [Test]
     procedure BuildFrame_Payload65536Bytes_Uses64BitLengthEncoding;
 
-    // BuildFrame — FIN flag variations
+    // BuildFrame - FIN flag variations
     [Test]
     procedure BuildFrame_FinFalse_FirstByteHasNoFinBit;
 
-    // ParseFrame — ping / pong opcodes
+    // ParseFrame - ping / pong opcodes
     [Test]
     procedure ParseFrame_PingFrame_OpcodeParsedCorrectly;
     [Test]
     procedure ParseFrame_PongFrame_OpcodeParsedCorrectly;
 
-    // ParseFrame — 16-bit length round-trip
+    // ParseFrame - 16-bit length round-trip
     [Test]
     procedure ParseFrame_16BitLength_RoundTripMatchesOriginal;
 
-    // BuildFrame — opcode validation
+    // BuildFrame - opcode validation
     [Test]
     procedure BuildFrame_ReservedOpcode_RaisesArgumentException;
     [Test]
@@ -86,7 +86,7 @@ type
     [Test]
     procedure BuildHandshakeResponse_DeflateDisabled_NoExtensionHeader;
 
-    // ApplyRXDeflate (issue #45 — inflate on RX)
+    // ApplyRXDeflate (issue #45 - inflate on RX)
     [Test]
     procedure ApplyRXDeflate_RSV1WithCompressedPayload_DecompressesAndClearsRSV1;
     [Test]
@@ -260,7 +260,7 @@ var
   LParsed:   TWebSocketFrame;
   LConsumed: Integer;
 begin
-  // Only 1 byte — minimum header is 2
+  // Only 1 byte - minimum header is 2
   LRaw := TBytes.Create($81);
   Assert.IsFalse(TWebSocketUtils.ParseFrame(@LRaw[0], Length(LRaw), LParsed, LConsumed));
   CheckInt(0, LConsumed);
@@ -270,7 +270,7 @@ procedure TPoseidonWebSocketTests.BuildFrame_ReservedOpcode_RaisesArgumentExcept
 var
   LRaised: Boolean;
 begin
-  // Opcodes 0x3-0x7 and 0xB-0xF are reserved — RFC 6455 §5.2
+  // Opcodes 0x3-0x7 and 0xB-0xF are reserved - RFC 6455 §5.2
   LRaised := False;
   try
     TWebSocketUtils.BuildFrame($03, True, nil);
@@ -371,9 +371,7 @@ begin
     CheckInt(I mod 256, LParsed.Payload[I]);
 end;
 
-// =============================================================================
 // permessage-deflate tests (RFC 7692)
-// =============================================================================
 
 procedure TPoseidonWebSocketTests.DeflateUtils_CompressDecompress_RoundTrip;
 // Compress then decompress a string; result must match the original.
@@ -462,9 +460,7 @@ begin
     'Default handshake response must not contain Sec-WebSocket-Extensions header');
 end;
 
-// =============================================================================
-// ApplyRXDeflate tests — issue #45 (permessage-deflate inflate on RX)
-// =============================================================================
+// ApplyRXDeflate tests - issue #45 (permessage-deflate inflate on RX)
 
 procedure TPoseidonWebSocketTests.ApplyRXDeflate_RSV1WithCompressedPayload_DecompressesAndClearsRSV1;
 // Compress a known string, set RSV1=True on a fake frame, call ApplyRXDeflate,
@@ -512,7 +508,7 @@ begin
 end;
 
 procedure TPoseidonWebSocketTests.ApplyRXDeflate_EmptyPayloadWithRSV1_NoError;
-// RSV1=True with an empty payload — must not raise and must clear RSV1.
+// RSV1=True with an empty payload - must not raise and must clear RSV1.
 var
   LFrame: TWebSocketFrame;
 begin

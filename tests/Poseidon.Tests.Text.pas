@@ -1,4 +1,4 @@
-unit Poseidon.Tests.Text;
+﻿unit Poseidon.Tests.Text;
 
 // DUnitX unit tests for Poseidon.Text (PoseidonUTF8Bytes).
 //
@@ -79,9 +79,9 @@ end;
 
 procedure TPoseidonTextTests.Encode_PortugueseAccents_MatchesTEncoding;
 begin
-  // Caminho de 2 bytes — o caso comum em payload fiscal brasileiro.
+  // Caminho de 2 bytes - o caso comum em payload fiscal brasileiro.
   AssertSameAsTEncoding('acentos',
-    'EMISSÃO DE NOTA FISCAL — CONTRIBUINTE ISENTO, OPERAÇÃO NÃO TRIBUTÁVEL. '
+    'EMISSÃO DE NOTA FISCAL - CONTRIBUINTE ISENTO, OPERAÇÃO NÃO TRIBUTÁVEL. '
     + 'Endereço: Praça São João, 1º andar. Ação/Coração/Ãêîõü çÇ');
 end;
 
@@ -111,7 +111,7 @@ end;
 
 procedure TPoseidonTextTests.Encode_HighSurrogateAtEnd_MatchesTEncoding;
 begin
-  // Fim da string no meio de um par — nao pode ler alem do buffer.
+  // Fim da string no meio de um par - nao pode ler alem do buffer.
   AssertSameAsTEncoding('high no fim', 'texto' + #$D83D);
 end;
 

@@ -1,6 +1,6 @@
-unit Poseidon.Net.Connection.Manager;
+﻿unit Poseidon.Net.Connection.Manager;
 
-// TConnectionManager — connection admission, per-IP tracking, limits.
+// TConnectionManager - connection admission, per-IP tracking, limits.
 //
 // Extracted from TPoseidonNativeServer to follow SRP.
 // Thread-safe: all public methods acquire FLock internally.
@@ -133,7 +133,6 @@ begin
     if Result >= 0 then
     begin
       FConnList.Delete(Result);
-      // Unregister per-IP counter
       if FMaxConnectionsPerIP > 0 then
       begin
         LIP := ExtractIP(LConn.RemoteAddr);

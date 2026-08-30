@@ -1,10 +1,10 @@
-unit Poseidon.Tests.Fuzz;
+﻿unit Poseidon.Tests.Fuzz;
 
 // In-process fuzzing of the pure parsing surfaces (no network, no server).
 //
 // Invariant under test: ParseHTTP1Request and TH2HpackCodec.DecodeHeaders must
 // NEVER crash (AV / range error / OOB read), NEVER hang (infinite loop = DoS),
-// and NEVER leak an exception, for ANY input — regardless of how malformed.
+// and NEVER leak an exception, for ANY input - regardless of how malformed.
 // They must always terminate returning True / False / a *BadRequest flag.
 //
 // Determinism: a seeded xorshift64 PRNG drives every input, so a failure is
@@ -48,7 +48,7 @@ type
     [Test] procedure Fuzz_MutatedValidFrames_NeverCrashesNeverHangs;
   end;
 
-  // WebSocket UTF-8 validation (RFC 3629) — the check that gates text/close
+  // WebSocket UTF-8 validation (RFC 3629) - the check that gates text/close
   // frames (Autobahn 6.*/7.*). Fuzzing proves the validator never crashes/hangs
   // on adversarial byte sequences; the vectors guard proves it actually
   // classifies well-formed vs malformed UTF-8 correctly.
@@ -61,7 +61,7 @@ type
   end;
 
   // Deterministic smuggling guards for the HTTP/1 parser. Fuzzing proves "never
-  // crashes"; these prove the SMUGGLING defenses actively hold — each crafts the
+  // crashes"; these prove the SMUGGLING defenses actively hold - each crafts the
   // exact request for one RFC 7230 §3.3.3 desync vector and asserts the parser
   // flags ABadRequest (→ 400 / close), not merely "did not crash".
   [TestFixture]
@@ -78,7 +78,7 @@ type
   end;
 
   // Deterministic invariant guards for the HPACK decoder. Fuzzing proves "never
-  // crashes"; these prove the SECURITY invariants actively hold — each crafts the
+  // crashes"; these prove the SECURITY invariants actively hold - each crafts the
   // exact adversarial block for one RFC 7541 danger zone and asserts the decoder
   // rejects it with the right signal (COMPRESSION_ERROR vs header-list-too-big),
   // not merely "did not crash". Regression guards for the HPACK-hardening.
@@ -113,9 +113,9 @@ const
 
 // Continuous-fuzzing knobs (env-driven; both default to today's exact behaviour
 // so the per-push CI gate stays fast and reproducible):
-//   FUZZ_SCALE — integer >= 1, multiplies the iteration count (nightly runs it
+//   FUZZ_SCALE - integer >= 1, multiplies the iteration count (nightly runs it
 //                large to fuzz for much longer).
-//   FUZZ_SEED  — hex/decimal salt XORed into every base seed, so a scheduled
+//   FUZZ_SEED  - hex/decimal salt XORed into every base seed, so a scheduled
 //                run explores a fresh input space each night while the default
 //                (unset -> 0) keeps the deterministic regression corpus.
 function FuzzScale: Integer;
@@ -146,9 +146,7 @@ begin
     Result := LVal;
 end;
 
-// ---------------------------------------------------------------------------
-// Deterministic PRNG — xorshift64. Seeded per run; reproducible.
-// ---------------------------------------------------------------------------
+// Deterministic PRNG - xorshift64. Seeded per run; reproducible.
 
 type
   TRng = record
@@ -184,9 +182,7 @@ begin
   Result := ALo + Integer(NextU64 mod UInt64(AHi - ALo + 1));
 end;
 
-// ---------------------------------------------------------------------------
-// Watchdog — publishes progress; a background thread detects a stalled loop.
-// ---------------------------------------------------------------------------
+// Watchdog - publishes progress; a background thread detects a stalled loop.
 
 type
   TFuzzProgress = class
@@ -251,7 +247,7 @@ end;
 
 // Runs AProc (the fuzz loop) on a worker thread; the calling test thread waits
 // up to CWatchdogTimeoutMs. If the worker does not finish, the loop hung on
-// some input — we report the last published seed. The worker is left detached
+// some input - we report the last published seed. The worker is left detached
 // (a hung pure function cannot be safely killed) so the suite keeps running.
 procedure RunWithWatchdog(AProgress: TFuzzProgress; AProc: TProc);
 var
@@ -279,7 +275,7 @@ begin
   LThread.Start;
 
   // Stall-based: reset the deadline whenever the iteration counter advances, so
-  // a long (high FUZZ_SCALE) run never false-trips — only a genuinely stuck
+  // a long (high FUZZ_SCALE) run never false-trips - only a genuinely stuck
   // input, which stops advancing the counter, trips the watchdog.
   LLastIter := -1;
   LDeadline := TThread.GetTickCount64 + UInt64(CWatchdogTimeoutMs);
@@ -294,16 +290,14 @@ begin
   until LDone or (TThread.GetTickCount64 >= LDeadline);
 
   if not LDone then
-    Assert.Fail(Format('HANG detected — loop stalled at iteration %d, ' +
+    Assert.Fail(Format('HANG detected - loop stalled at iteration %d, ' +
       'seed=0x%.16x (infinite loop / DoS on that input)', [LIter, LSeed]));
   if LErr <> '' then
     Assert.Fail('Parser raised on a fuzz input: ' + LErr +
       Format(' (last iteration %d, seed=0x%.16x)', [LIter, LSeed]));
 end;
 
-// ---------------------------------------------------------------------------
 // Corpus builders
-// ---------------------------------------------------------------------------
 
 function RandomBuf(var ARng: TRng; AMaxLen: Integer): TBytes;
 var
@@ -365,7 +359,7 @@ begin
 end;
 
 // Structured HPACK inputs targeting the known danger zones: oversized varints
-// (≥2^31 length — issue this session flagged), out-of-range table indices,
+// (≥2^31 length - issue this session flagged), out-of-range table indices,
 // truncated Huffman, dynamic-table-size updates.
 function StructuredHPACK(var ARng: TRng): TBytes;
 var
@@ -398,10 +392,8 @@ begin
   Result := Result + RandomBuf(ARng, ARng.InRange(0, 24));
 end;
 
-// ---------------------------------------------------------------------------
-// HPACK block builders — used by the deterministic invariant guards to craft
+// HPACK block builders - used by the deterministic invariant guards to craft
 // the exact adversarial representation for each danger zone (RFC 7541 §5/§6).
-// ---------------------------------------------------------------------------
 
 procedure HpAppendInt(var ABuf: TBytes; AValue: Cardinal; APrefixBits: Byte;
   AHighBits: Byte);
@@ -443,7 +435,7 @@ begin
     ABuf[LN + I - 1] := Byte(AStr[I]);
 end;
 
-// §6.2.1 literal with incremental indexing, new name (index 0) — primes the
+// §6.2.1 literal with incremental indexing, new name (index 0) - primes the
 // dynamic table with (AName, AValue).
 function HpLiteralIndexedNewName(const AName, AValue: AnsiString): TBytes;
 begin
@@ -474,9 +466,7 @@ begin
     procedure begin end);
 end;
 
-// ---------------------------------------------------------------------------
 // HTTP/1 parser fuzz
-// ---------------------------------------------------------------------------
 
 procedure FuzzHTTP1(AProgress: TFuzzProgress; ARandom: Boolean);
 var
@@ -503,7 +493,7 @@ begin
     else
       LBuf := MutateTemplate(LRng);
 
-    // Must return without raising; result value is irrelevant — only the
+    // Must return without raising; result value is irrelevant - only the
     // no-crash / no-hang invariant matters.
     ParseHTTP1Request(LBuf, Length(LBuf), 65536, 8388608,
       LMethod, LPath, LQuery, LHeaders, LBody, LKeepAlive, LConsumed, LBad);
@@ -565,9 +555,7 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
 // HPACK fuzz
-// ---------------------------------------------------------------------------
 
 procedure FuzzHPACK(AProgress: TFuzzProgress; AStructured: Boolean);
 var
@@ -634,10 +622,8 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
-// WebSocket frame parser fuzz — a crafted 64-bit length field is a classic
+// WebSocket frame parser fuzz - a crafted 64-bit length field is a classic
 // OOM/DoS vector; ParseFrame must reject it, not allocate on it.
-// ---------------------------------------------------------------------------
 
 procedure FuzzWebSocket(AProgress: TFuzzProgress; AMutate: Boolean);
 var
@@ -655,7 +641,7 @@ begin
     AProgress.Mark(I, LRng.State);
     if AMutate then
     begin
-      // Start from a valid masked text frame, then corrupt a few bytes — keeps
+      // Start from a valid masked text frame, then corrupt a few bytes - keeps
       // the fuzzer near the header/length/mask decision boundaries.
       LBuf := TWebSocketUtils.TextFrame('hello world');
       LMutations := LRng.InRange(1, 6);
@@ -721,7 +707,7 @@ begin
     AProgress.Mark(I, LRng.State);
     if AMutate then
     begin
-      // Start from valid UTF-8, corrupt a few bytes — keeps the fuzzer near the
+      // Start from valid UTF-8, corrupt a few bytes - keeps the fuzzer near the
       // continuation/overlong/surrogate decision boundaries.
       LBuf := ValidUtf8Sample;
       LMut := LRng.InRange(1, 6);
@@ -779,9 +765,7 @@ begin
   Assert.IsFalse(IsValidUTF8(TBytes.Create($C0, $80)), 'overlong NUL encoding is invalid');
 end;
 
-// ---------------------------------------------------------------------------
 // HTTP/1 smuggling guards (deterministic)
-// ---------------------------------------------------------------------------
 
 function ReqBytes(const AStr: AnsiString): TBytes;
 var
@@ -811,7 +795,7 @@ begin
 end;
 
 // §3.3.3: Content-Length together with Transfer-Encoding: chunked is a CL.TE
-// smuggling vector — the parser must reject the whole message.
+// smuggling vector - the parser must reject the whole message.
 procedure THTTP1SmugglingTests.ContentLengthAndChunked_Rejected;
 var
   LOk: Boolean;
@@ -836,7 +820,7 @@ begin
 end;
 
 // §3.3.3: a Transfer-Encoding whose final coding is not "chunked" leaves the
-// message length undeterminable — reject.
+// message length undeterminable - reject.
 procedure THTTP1SmugglingTests.TransferEncodingNotChunked_Rejected;
 var
   LOk: Boolean;
@@ -848,7 +832,7 @@ begin
   Assert.IsFalse(LOk, 'must not parse as a valid request');
 end;
 
-// §3.3.3: "chunked, chunked" — final coding not a bare "chunked" → reject.
+// §3.3.3: "chunked, chunked" - final coding not a bare "chunked" → reject.
 procedure THTTP1SmugglingTests.TransferEncodingChunkedChunked_Rejected;
 var
   LOk: Boolean;
@@ -861,7 +845,7 @@ begin
 end;
 
 // §3.2.4: obsolete line folding (a header line starting with SP/HT) must be
-// rejected — it is a classic header-injection / desync vector.
+// rejected - it is a classic header-injection / desync vector.
 procedure THTTP1SmugglingTests.ObsFoldContinuationLine_Rejected;
 var
   LOk: Boolean;
@@ -909,9 +893,7 @@ begin
   Assert.IsTrue(LOk, 'well-formed request must parse');
 end;
 
-// ---------------------------------------------------------------------------
 // HPACK invariant guards (deterministic)
-// ---------------------------------------------------------------------------
 
 // A single ~3 KB dynamic-table entry referenced repeatedly by 1-byte indexed
 // fields expands the header list past CMaxHeaderListSize (16 KB). The decoder
@@ -939,7 +921,7 @@ begin
   end;
 end;
 
-// §6.3 — a dynamic table size update above the announced maximum (4096) is a
+// §6.3 - a dynamic table size update above the announced maximum (4096) is a
 // COMPRESSION_ERROR, never an allocation.
 procedure THPACKInvariantTests.DynTableSizeUpdate_AboveAnnounced_IsCompressionError;
 var
@@ -959,7 +941,7 @@ begin
   end;
 end;
 
-// §5.2 — the EOS symbol (30 ones) must not appear as a decoded Huffman symbol.
+// §5.2 - the EOS symbol (30 ones) must not appear as a decoded Huffman symbol.
 procedure THPACKInvariantTests.Huffman_EmbeddedEOS_IsCompressionError;
 var
   LCodec: TH2HpackCodec;
@@ -979,7 +961,7 @@ begin
   end;
 end;
 
-// §6.1 — an indexed field addressing neither the static nor the (empty) dynamic
+// §6.1 - an indexed field addressing neither the static nor the (empty) dynamic
 // table is a COMPRESSION_ERROR.
 procedure THPACKInvariantTests.IndexedField_OutOfRange_IsCompressionError;
 var
@@ -997,7 +979,7 @@ begin
   end;
 end;
 
-// §5.2 — a string length that runs past the buffer is a truncated fragment →
+// §5.2 - a string length that runs past the buffer is a truncated fragment →
 // COMPRESSION_ERROR (the unsigned bounds check must catch it before Move).
 procedure THPACKInvariantTests.StringLength_BeyondBuffer_IsCompressionError;
 var
@@ -1016,7 +998,7 @@ begin
   end;
 end;
 
-// §5.1 — an integer whose continuation bytes overflow past 2^32 must NOT wrap to
+// §5.1 - an integer whose continuation bytes overflow past 2^32 must NOT wrap to
 // a small signed value and drive an allocation; the decoder returns 0 and the
 // representation is handled without a crash or giant Move.
 procedure THPACKInvariantTests.IntegerOverflow_PastUInt32_DoesNotAllocate;
@@ -1029,7 +1011,7 @@ begin
   try
     // Indexed field with a varint of six 0xFF continuation bytes (> 2^32).
     LBlock := TBytes.Create($FF, $FF, $FF, $FF, $FF, $FF, $0F);
-    // Invariant: returns (no crash / no OOM) — value is irrelevant here.
+    // Invariant: returns (no crash / no OOM) - value is irrelevant here.
     DecodeBlock(LCodec, LBlock, LTooBig, LProtoErr);
     Assert.Pass('Integer overflow handled without allocation or crash');
   finally

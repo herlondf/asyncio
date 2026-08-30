@@ -1,4 +1,4 @@
-unit Poseidon.Middleware.JWT;
+﻿unit Poseidon.Middleware.JWT;
 
 // Validates Bearer JWT tokens (HMAC-SHA256 / HS256).
 // Raises EPoseidonException(401) if invalid/missing/expired.
@@ -17,7 +17,7 @@ uses
   Poseidon.Native.Types;
 
 // AIssuer / AAudience: when non-empty, the token's `iss` / `aud` claim MUST match
-// (RFC 7519 §4.1.1 / §4.1.3) — without this, a token minted for another service
+// (RFC 7519 §4.1.1 / §4.1.3) - without this, a token minted for another service
 // sharing the same HMAC secret is accepted (cross-service replay). ARequireExp:
 // when True, a token without an `exp` claim is rejected (no everlasting tokens).
 function JWTMiddleware(const ASecret: string;
@@ -62,7 +62,7 @@ begin
   end;
 end;
 
-// Constant-time string comparison — never short-circuits on the first
+// Constant-time string comparison - never short-circuits on the first
 // differing byte, so an attacker cannot recover the expected signature by
 // measuring response timing byte-by-byte. Length mismatch is safe to leak here
 // (HS256 signatures have a fixed length).
@@ -121,7 +121,7 @@ begin
   Result := ConstantTimeEquals(LExpected, ASignature);
 end;
 
-// RFC 7519 §4.1.3 — `aud` may be a single string OR an array of strings; the
+// RFC 7519 §4.1.3 - `aud` may be a single string OR an array of strings; the
 // token is acceptable when the configured audience is present in either form.
 function _AudienceMatches(AJSON: TJSONObject; const AAudience: string): Boolean;
 var
@@ -197,13 +197,13 @@ begin
           raise EPoseidonException.Create('Token expired', THTTPStatus.Unauthorized);
         if ARequireExp and not LHasExp then
           raise EPoseidonException.Create(AUnauthorizedMsg, THTTPStatus.Unauthorized);
-        // RFC 7519 §4.1.5 — reject a token used before its not-before time.
+        // RFC 7519 §4.1.5 - reject a token used before its not-before time.
         if LJSON.TryGetValue<Int64>('nbf', LNbf) then
         begin
           if LNowUnix < LNbf then
             raise EPoseidonException.Create('Token not yet valid', THTTPStatus.Unauthorized);
         end;
-        // RFC 7519 §4.1.1 issuer / §4.1.3 audience — enforced only when configured.
+        // RFC 7519 §4.1.1 issuer / §4.1.3 audience - enforced only when configured.
         if (AIssuer <> '') and
            ((not LJSON.TryGetValue<string>('iss', LIss)) or (LIss <> AIssuer)) then
           raise EPoseidonException.Create(AUnauthorizedMsg, THTTPStatus.Unauthorized);
