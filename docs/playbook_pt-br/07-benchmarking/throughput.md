@@ -8,7 +8,7 @@ keep-alive e nova-conexão-por-request e imprime uma tabela de latência
 Para um harness de comparação multi-framework completo (Docker, k6, wrk,
 Grafana, Poseidon vs. Horse/outros frameworks sob carga realista), veja o
 repositório separado `Benchmark` — ele não faz parte deste repositório. O
-[README](../../../README_pt-br.md#performance-vs-o-mercado) traz a tabela
+[README](../../../README.md#performance-vs-o-mercado) traz a tabela
 atual de resultados com os 8 frameworks e a matriz de protocolo/funcionalidades
 (`docs/framework-features_pt-br.svg`); atualize os dois juntos quando os
 números mudarem.

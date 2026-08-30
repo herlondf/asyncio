@@ -1,20 +1,20 @@
 # Poseidon
 
-> *God of the seas — raw power, unmatched speed.*
+> *Deus dos mares - poder bruto, velocidade incomparavel.*
 
 <p align="center">
   <img src="docs/logo.png" alt="Poseidon" width="320"/>
 </p>
 
 <p align="center">
-  Zero-dependency, native async HTTP framework for Delphi and Free Pascal.<br/>
-  IOCP/RIO on Windows, io_uring/epoll on Linux — HTTP/1.1, HTTP/2, WebSocket and 20 built-in middlewares out of the box.<br/>
-  <strong>128k RPS, zero errors under 500 concurrent connections.</strong>
+  Framework HTTP assincrono nativo, zero dependencias, para Delphi e Free Pascal.<br/>
+  IOCP/RIO no Windows, io_uring/epoll no Linux - HTTP/1.1, HTTP/2, WebSocket e 20 middlewares integrados de fabrica.<br/>
+  <strong>128k RPS, zero erros com 500 conexoes simultaneas.</strong>
 </p>
 
 ---
 
-## Quick Start
+## Inicio Rapido
 
 ```pascal
 program MyServer;
@@ -48,7 +48,7 @@ begin
     App.Listen(9000, '0.0.0.0',
       procedure
       begin
-        Writeln('Server ready on http://localhost:9000');
+        Writeln('Servidor pronto em http://localhost:9000');
         Readln;
         App.Stop;
       end);
@@ -58,79 +58,130 @@ begin
 end.
 ```
 
-## Why Poseidon
+## Por que Poseidon
 
 | | Poseidon v2 | Horse Epoll 4.0 |
 |---|---|---|
-| **Throughput** (500 conn, 16 cores) | **127,532 RPS** | 3,780 RPS (61% errors) |
-| **Latency p50** | **1.92ms** | 103ms |
-| **Latency p99** | **5.51ms** | 287ms |
-| **Errors** | **0** | 35K+ Non-2xx |
-| **Architecture** | Shared-nothing per-core | Single epoll |
-| **HTTP/2** | Built-in | No |
-| **WebSocket** | Built-in | No |
-| **SSL/TLS** | Native OpenSSL (SNI, mTLS, ALPN) | Via Indy |
-| **Middlewares** | 20 built-in | Community |
-| **Native API** | Zero-copy, instance-based | N/A |
+| **Throughput** (500 conn, 16 cores) | **127.532 RPS** | 3.780 RPS (61% erros) |
+| **Latencia p50** | **1,92ms** | 103ms |
+| **Latencia p99** | **5,51ms** | 287ms |
+| **Erros** | **0** | 35K+ Non-2xx |
+| **Arquitetura** | Shared-nothing per-core | Single epoll |
+| **HTTP/2** | Integrado | Nao |
+| **WebSocket** | Integrado | Nao |
+| **SSL/TLS** | OpenSSL nativo (SNI, mTLS, ALPN) | Via Indy |
+| **Middlewares** | 20 integrados | Comunidade |
+| **API Nativa** | Zero-copy, baseada em instancia | N/A |
 
-## Architecture: Shared-Nothing Per-Core
-
-<p align="center">
-  <img src="docs/architecture-flow.svg" alt="Poseidon's shared-nothing per-core request flow vs. Horse's single epoll loop" width="880"/>
-</p>
-
-Each core does everything: accept, recv, parse, execute handler, send response. No queues, no locks, no contention. Linear scaling with core count.
-
-The I/O backend is selected **once** at startup, with automatic fallback: **IOCP** (Windows default) or **RIO** (opt-in, zero-syscall polling via `FORCE_RIO`); **io_uring** ≥ 5.1 (Linux default) or **epoll** (fallback / opt-in via `FORCE_EPOLL`).
-
----
-
-## Performance vs. the Field
-
-Multi-framework comparison — mixed plaintext/JSON/large-JSON workload (40/30/30), `wrk -t4 -c200 -d300s`, local run under a 2 vCPU / 1 GB cgroup limit, both Poseidon perf fixes applied (#231 TCP_CORK, #232 cgroup-aware worker sizing):
-
-| Rank | Framework | Req/s | p99 latency |
-|---:|---|---:|---:|
-| 1 | uws | 54,223 | 6.40 ms |
-| **2** | **Poseidon v2** | **53,920** | 67.30 ms |
-| 3 | Actix | 52,708 | 7.03 ms |
-| 4 | Go Fiber | 38,110 | 68.71 ms |
-| 5 | mORMot2 | 33,372 | 46.99 ms |
-| 6 | nginx | 27,393 | 71.61 ms |
-| 7 | Kestrel | 23,785 | 54.12 ms |
-| 8 | Horse (Epoll) | 2,475 | 493.02 ms |
-
-Second of 8, ahead of every other Delphi/Pascal framework and every general-purpose framework except uws — and **21.8x Horse**. The p99 reflects the large-JSON slice of the mixed workload; uws/Actix trade feature surface for a flatter tail (see the matrix below). Full methodology lives in the separate `Benchmark` harness (pointers in [`docs/playbook/07-benchmarking`](docs/playbook/07-benchmarking)); this repo's own reproducible numbers are in [`samples/08-benchmark/`](samples/08-benchmark/).
+## Arquitetura: Shared-Nothing Per-Core
 
 <p align="center">
-  <img src="docs/framework-features.svg" alt="Poseidon protocol/feature comparison against 7 other frameworks" width="880"/>
+  <img src="docs/architecture-flow_pt-br.svg" alt="Fluxo de requisicoes shared-nothing per-core do Poseidon vs. o loop unico de epoll do Horse" width="880"/>
 </p>
 
-Every hot-path change is validated with a controlled before/after run before it merges — same binary, one change at a time. The 2026-08-07 parser/dispatcher pass (dropped a redundant allocation on the `Connection` header, skipped the upgrade-detection scan on non-upgrade GETs) measured **+1.7% throughput**, with every repetition on the "after" side beating every repetition on the "before" side.
+Cada core faz tudo: accept, recv, parse, executa handler, envia resposta. Sem filas, sem locks, sem contencao. Escalamento linear com o numero de cores.
+
+O backend de I/O e selecionado **uma unica vez** na inicializacao, com fallback automatico: **IOCP** (padrao no Windows) ou **RIO** (opt-in, polling sem syscall via `FORCE_RIO`); **io_uring** >= 5.1 (padrao no Linux) ou **epoll** (fallback / opt-in via `FORCE_EPOLL`).
 
 ---
 
-## Features
+## Performance vs. o Mercado
 
-**Engine** — HTTP/1.1 keep-alive · HTTP/2 (ALPN h2, h2c, server push, flow control) · WebSocket (RFC 6455, permessage-deflate) · HTTPS native OpenSSL (SNI, mTLS) · gzip + Brotli compression · Proxy Protocol v1/v2 · Graceful reload (PID file, SIGTERM, zero-downtime) · Windows 64-bit (IOCP/RIO) + Linux 64-bit (io_uring/epoll) · Delphi 11+ and Free Pascal 3.3.1
+Oito servidores HTTP, um de cada vez, na mesma máquina e na mesma janela.
 
-**Framework** — Hash-map router, O(1) lookup, `:param` support · Fluent route registration (Get/Post/Put/Delete/Patch/Head/All) · Zero-copy, stack-allocated request context · DTO binding with validation attributes · OpenAPI 3.x + Swagger UI · RFC 7807 Problem Details · Signed cookies (HMAC-SHA256)
+**Cenário.** Carga mista: 40% `/plaintext` (13 B), 30% `/json` (27 B), 30% `/json-large` (63 KB),
+gerada por `wrk -t8 -c200` durante 300 s por framework, após 15 s de aquecimento descartado. Cada
+servidor rodou em Docker com `--cpuset-cpus` fixando **2 núcleos físicos dedicados**, mais
+`--cpus=2.0` e limite de **1 GB** de memória; o gerador de carga ficou isolado em outros 4 núcleos
+físicos, então nunca disputou CPU com o servidor nem saturou (pico de 442% dos 800% disponíveis).
+Os oito serviram payloads byte a byte idênticos e o mix medido saiu 40,0/30,0/30,0 em todos.
+Host: Ryzen 7 5800H, WSL2, Linux 6.6.
 
-**Performance engineering** — Cache-line padded atomic counters · Vectored I/O (writev/WSASend) · io_uring registered files + multishot accept · DisconnectEx socket recycling (Windows) · Thread-local header arena · 8 KB buffer pool (Acquire/Release)
+| Posição | Framework | Tecnologia | Req/s | p50 | p99 | Máx | Erros |
+|---:|---|---|---:|---:|---:|---:|---:|
+| 1 | uws | C++ | 63.212 | 2,87 ms | 10,52 ms | 66 ms | 0 |
+| 2 | Actix | Rust | 37.146 | 5,12 ms | 15,21 ms | 143 ms | 0 |
+| **3** | **Poseidon v2** | **Object Pascal** | **35.941** | **5,30 ms** | **10,19 ms** | **64 ms** | **0** |
+| 4 | Go Fiber | Go | 30.641 | 6,39 ms | 18,60 ms | 52 ms | 0 |
+| 5 | mORMot2 | Object Pascal | 28.077 | 6,88 ms | 44,80 ms | 1.810 ms | 1 |
+| 6 | nginx | C | 20.281 | 9,29 ms | 20,08 ms | 307 ms | 0 |
+| 7 | Kestrel | C# / .NET | 17.599 | 10,31 ms | 29,94 ms | 101 ms | 0 |
+| 8 | Horse (Epoll) | Object Pascal | 2.554 | 79,63 ms | 799,25 ms | 1.990 ms | 64 |
 
-**20 built-in middlewares** — CORS, JWT, Logger, RateLimit, Compression, Timeout, BodyLimit, RequestID, CircuitBreaker, Metrics, Static, HealthCheck, Security, Proxy, Digest, Guard, Validation, ProblemDetails, OpenAPI, Cache
+### Consumo de recursos
+
+Mesma execução, amostrada a cada 5 s no contêiner do servidor. Todos saturaram as duas CPUs, então
+CPU não separa ninguém; memória sim.
+
+| Posição | Framework | Tecnologia | Mem pico | Mem média | CPU média | Requisições servidas |
+|---:|---|---|---:|---:|---:|---:|
+| **1** | **Poseidon v2** | **Object Pascal** | **5,2 MB** | **4,3 MB** | **199%** | **10.785.241** |
+| 2 | uws | C++ | 6,3 MB | 3,2 MB | 196% | 18.969.730 |
+| 3 | Go Fiber | Go | 7,2 MB | 6,7 MB | 197% | 9.195.118 |
+| 4 | Actix | Rust | 19,2 MB | 17,1 MB | 202% | 11.145.622 |
+| 5 | nginx | C | 21,8 MB | 20,8 MB | 198% | 6.086.278 |
+| 6 | mORMot2 | Object Pascal | 33,8 MB | 31,3 MB | 202% | 8.425.615 |
+| 7 | Kestrel | C# / .NET | 81,4 MB | 74,6 MB | 196% | 5.281.181 |
+| 8 | Horse (Epoll) | Object Pascal | 116,5 MB | 99,1 MB | 196% | 766.574 |
+
+### O que os números dizem
+
+Terceiro de oito em throughput bruto, mas essa é a linha menos interessante da tabela. Leia as
+outras colunas:
+
+- **Melhor p99 e melhor máximo de todo o comparativo.** 10,19 ms e 64 ms, contra 15,21 ms / 143 ms
+  do Actix e 18,60 ms / 52 ms do Go Fiber. Sob limite de contêiner, a cauda é o que o usuário
+  sente de verdade, e o Poseidon sustenta a cauda mais plana de todos aqui, uws incluído.
+- **Menor consumo de memória de todo o comparativo.** 5,2 MB de pico, contra 19,2 MB do Actix,
+  81 MB do Kestrel e 116 MB do Horse. São 15x menos RAM que o Kestrel para o dobro do throughput,
+  o que é a diferença entre um contêiner e quatro.
+- **Zero erros em 10,8 milhões de requisições.** Nenhum timeout, nenhum reset, nenhum non-2xx.
+  Apenas três dos oito conseguiram isso.
+- **14x o Horse**, no mesmo compilador e no mesmo runtime, com 22x menos memória.
+- A 3,2% do Actix em throughput, o que está dentro da variação entre execuções desta máquina. Um
+  servidor Rust escrito à mão e um framework Delphi são, nesta carga, igualmente rápidos.
+
+O único framework claramente à frente é o uws, e vale ser preciso sobre o motivo: é C++ com um
+event loop por thread e nenhuma abstração entre o socket e o handler. Essa distância é
+arquitetural, não um parâmetro de ajuste.
+
+Duas correções entraram no Poseidon durante a medição. Um relógio do idle sweep que estourava em
+`UInt64` e fechava justamente as conexões **mais movimentadas** (6.405 erros de socket espúrios,
+agora zero, e +12% de throughput de brinde), e o dimensionamento de IO workers que ignorava o
+orçamento de CPU do contêiner (p99 31% menor em A/B pareado, 67% com 4 CPUs). A metodologia
+completa vive no harness `Benchmark` separado (ponteiros em
+[`docs/playbook_pt-br/07-benchmarking`](docs/playbook_pt-br/07-benchmarking)); os números
+reproduzíveis deste próprio repo estão em [`samples/08-benchmark/`](samples/08-benchmark/).
+
+<p align="center">
+  <img src="docs/framework-features_pt-br.svg" alt="Comparacao de recursos de protocolo do Poseidon contra 7 outros frameworks" width="880"/>
+</p>
+
+Toda mudanca no caminho quente e validada com uma comparacao controlada antes/depois antes de ser mergeada - mesmo binario, uma mudanca por vez. A rodada de parser/dispatcher de 2026-08-07 (removeu uma alocacao redundante no header `Connection`, pulou a varredura de deteccao de upgrade em GETs sem upgrade) mediu **+1,7% de throughput**, com toda repeticao do lado "depois" superando toda repeticao do lado "antes".
 
 ---
 
-## Requirements
+## Funcionalidades
 
-- **Delphi 11 Alexandria or later**, or **Free Pascal 3.3.1** (trunk)
-- Windows 64-bit or Linux 64-bit
-- OpenSSL in PATH (only for HTTPS/HTTP2)
+**Engine** - HTTP/1.1 keep-alive · HTTP/2 (ALPN h2, h2c, server push, flow control) · WebSocket (RFC 6455, permessage-deflate) · HTTPS com OpenSSL nativo (SNI, mTLS) · Compressao gzip + Brotli · Proxy Protocol v1/v2 · Graceful reload (PID file, SIGTERM, zero-downtime) · Windows 64-bit (IOCP/RIO) + Linux 64-bit (io_uring/epoll) · Delphi 11+ e Free Pascal 3.3.1
 
-## Installation
+**Framework** - Router hash-map, lookup O(1), suporte a `:param` · Registro fluente de rotas (Get/Post/Put/Delete/Patch/Head/All) · Contexto de requisicao zero-copy, stack-allocated · Binding de DTO com atributos de validacao · OpenAPI 3.x + Swagger UI · RFC 7807 Problem Details · Cookies assinados (HMAC-SHA256)
 
-Add `src/`, `src/compat/` and `middlewares/` to your project search path:
+**Engenharia de performance** - Contadores atomicos com padding de cache-line · I/O vetorizado (writev/WSASend) · Arquivos registrados no io_uring + multishot accept · Reciclagem de sockets via DisconnectEx (Windows) · Arena de headers thread-local · Buffer pool de 8 KB (Acquire/Release)
+
+**20 middlewares integrados** - CORS, JWT, Logger, RateLimit, Compression, Timeout, BodyLimit, RequestID, CircuitBreaker, Metrics, Static, HealthCheck, Security, Proxy, Digest, Guard, Validation, ProblemDetails, OpenAPI, Cache
+
+---
+
+## Requisitos
+
+- **Delphi 11 Alexandria ou superior**, ou **Free Pascal 3.3.1** (trunk)
+- Windows 64-bit ou Linux 64-bit
+- OpenSSL no PATH (apenas para HTTPS/HTTP2)
+
+## Instalacao
+
+Adicione `src/`, `src/compat/` e `middlewares/` ao search path do projeto:
 
 ```
 <poseidon>\src
@@ -140,20 +191,20 @@ Add `src/`, `src/compat/` and `middlewares/` to your project search path:
 
 ### Free Pascal / Lazarus
 
-Poseidon compiles and serves under FPC 3.3.1 on Win64 (IOCP) and Linux
-(io_uring/epoll) in addition to Delphi. Notes:
+O Poseidon compila e serve sob FPC 3.3.1 no Win64 (IOCP) e Linux (io_uring/epoll)
+alem do Delphi. Notas:
 
-- Requires **FPC 3.3.1** (trunk) — `reference to` / anonymous methods and
-  attribute RTTI are not in the 3.2.2 release. Compile with
+- Requer **FPC 3.3.1** (trunk) - `reference to` / metodos anonimos e RTTI de
+  atributos nao existem no release 3.2.2. Compile com
   `-MDELPHIUNICODE -Mfunctionreferences -Manonymousfunctions -Mprefixedattributes`.
-- On Linux, make `cthreads` the **first** unit of your program (`{$IFDEF UNIX}`)
-  so the threaded RTL is active.
-- Under FPC the server defaults to **SyncDispatch** (inline dispatch); the async
-  worker-pool mode is best-effort on the current FPC trunk.
-- Reference build/run gates: `tests/fpc/build-server-fpc.ps1` (Windows),
+- No Linux, `cthreads` deve ser a **primeira** unit do programa (`{$IFDEF UNIX}`)
+  para ativar o RTL com threads.
+- Sob FPC o servidor usa **SyncDispatch** por padrao (dispatch inline); o modo
+  async (worker pool) e best-effort no trunk atual do FPC.
+- Gates de referencia: `tests/fpc/build-server-fpc.ps1` (Windows),
   `tests/fpc/build-linux-fpc.sh` (Linux).
 
-## Usage Examples
+## Exemplos de Uso
 
 ### Middleware
 
@@ -172,14 +223,14 @@ begin
 
   App.Use(CORSMiddleware);
   App.Use(LoggerMiddleware);
-  App.Use(JWTMiddleware('my-secret'));
+  App.Use(JWTMiddleware('meu-segredo'));
 
-  App.Get('/api/data',
+  App.Get('/api/dados',
     procedure(var Ctx: TNativeRequestContext)
     begin
       Ctx.Status := 200;
       Ctx.ContentType := 'application/json';
-      Ctx.Body := TEncoding.UTF8.GetBytes('{"data":"protected"}');
+      Ctx.Body := TEncoding.UTF8.GetBytes('{"dados":"protegidos"}');
     end);
 
   App.Listen(9000);
@@ -200,46 +251,46 @@ App.WebSocket('/ws',
 
 ```pascal
 App.ConfigureSSL('cert.pem', 'key.pem');
-App.AddSSLCert('api.example.com', 'api-cert.pem', 'api-key.pem');  // SNI
+App.AddSSLCert('api.exemplo.com', 'api-cert.pem', 'api-key.pem');  // SNI
 App.EnableHTTP2;
 App.Listen(443);
 ```
 
-More recipes (route groups, graceful reload, security hardening, metrics) live in the [playbook](docs/playbook/README.md).
+Mais receitas (grupos de rotas, graceful reload, hardening de seguranca, metricas) vivem no [playbook](docs/playbook_pt-br/README.md).
 
 ---
 
-## Documentation
+## Documentacao
 
-- [API Reference](docs/API-REFERENCE.md) · [Referência de API (pt-BR)](docs/API-REFERENCE_pt-br.md)
+- [Referência de API](docs/API-REFERENCE_pt-br.md) · [API Reference (EN)](docs/API-REFERENCE.md)
 - [Playbook (English)](docs/playbook/README.md)
 - [Playbook (Portugues)](docs/playbook_pt-br/README.md)
-- [FuzzRunner — continuous parser fuzzing](tests/FUZZING.md)
+- [FuzzRunner - fuzzing contínuo dos parsers](tests/FUZZING.md)
 - [Contributing](docs/CONTRIBUTING.md)
 - [Como contribuir (pt-BR)](docs/CONTRIBUTING_pt-br.md)
 
-## The Olympian Family
+## A Familia Olimpica
 
-> *Poseidon commands the seas — raw power, the async engine beneath the waves.*
-> *Triton, his son, guards the depths — holds the connections that must not be lost.*
-> *Hermes runs between all realms — carries messages, faster than any wave.*
-> *Hefesto forges in the depths — invisible, tireless, turning raw material into finished work.*
-> *Apollo is the god of light and truth — brings everything to light.*
+> *Poseidon comanda os mares - poder bruto, a engine assíncrona sob as ondas.*
+> *Triton, seu filho, guarda as profundezas - retém as conexões que não podem se perder.*
+> *Hermes percorre todos os reinos - carrega mensagens, mais rápido que qualquer onda.*
+> *Hefesto forja nas profundezas - invisível, incansável, transformando matéria bruta em obra acabada.*
+> *Apollo é o deus da luz e da verdade - traz tudo à luz.*
 
-| Project | Myth | Role |
-|---------|------|------|
-| **Poseidon** (this) | God of the seas | Async-native HTTP framework + I/O engine — IOCP/RIO, io_uring/epoll |
-| [**Triton**](https://github.com/herlondf/triton) | Son of Poseidon, guardian of the depths | Generic resource pool — connections, clients, SMTP |
-| [**Hermes**](https://github.com/herlondf/hermes) | Messenger of the gods, guide between realms | Redis client — key-value, pub/sub, messaging |
-| [**Hefesto**](https://github.com/herlondf/hefesto) | Forgemaster of the gods, works unseen | Background jobs — queues, workers, retry, scheduling |
-| [**Apollo**](https://github.com/herlondf/apollo) | God of light and truth, brings things to light | Structured logging — async sinks, OTLP, Seq, Loki, Datadog |
+| Projeto | Mito | Papel |
+|---------|------|-------|
+| **Poseidon** (este) | Deus dos mares | Framework HTTP assíncrono nativo + engine de I/O - IOCP/RIO, io_uring/epoll |
+| [**Triton**](https://github.com/herlondf/triton) | Filho de Poseidon, guardião das profundezas | Pool de recursos genérico - conexões, clientes, SMTP |
+| [**Hermes**](https://github.com/herlondf/hermes) | Mensageiro dos deuses, guia entre os reinos | Cliente Redis - chave-valor, pub/sub, mensageria |
+| [**Hefesto**](https://github.com/herlondf/hefesto) | Forjador dos deuses, trabalha nas sombras | Jobs em background - filas, workers, retry, agendamento |
+| [**Apollo**](https://github.com/herlondf/apollo) | Deus da luz e da verdade, traz as coisas à luz | Logging estruturado - sinks assíncronos, OTLP, Seq, Loki, Datadog |
 
 ---
 
-## License
+## Licenca
 
 MIT
 
 ---
 
-> 🇧🇷 Leia este documento em portugues: [README_pt-br.md](./README_pt-br.md)
+> 🇺🇸 Read this document in English: [README_en.md](./README_en.md)

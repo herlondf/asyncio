@@ -7,7 +7,7 @@ plus an HTML report with charts.
 
 For a full multi-framework comparison harness (Docker, k6, wrk, Grafana,
 Poseidon vs. Horse/other frameworks under realistic load), see the separate
-`Benchmark` repository — it is not part of this repo. The [README](../../../README.md#performance-vs-the-field)
+`Benchmark` repository — it is not part of this repo. The [README](../../../README_en.md#performance-vs-the-field)
 carries the current 8-framework result table and a protocol/feature matrix
 (`docs/framework-features.svg`); update both together when the numbers change.
 
