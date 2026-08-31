@@ -41,6 +41,70 @@ $x.SelectNodes('//test-case') | ? { $_.success -ne 'True' } |
   % { $_.name } | Sort-Object -Unique
 ```
 
+## O runner self-hosted
+
+O CI só roda se existir um runner com as labels `self-hosted`, `windows`,
+`delphi`. Sem ele os jobs ficam `queued` ate morrer no timeout de 24h, em
+silencio: nao ha erro, nao ha notificacao, e o repositorio parece verde porque
+nada nunca falha. Foi o que aconteceu entre 08-08 e 31-08 - 23 dias sem nenhuma
+validacao, com `total_count: 0` na API de runners.
+
+### Verificar se ha runner (primeira coisa a checar quando o CI nao roda)
+
+```bash
+gh api repos/herlondf/poseidon/actions/runners
+# total_count: 0  -> nao existe runner, nao adianta esperar
+```
+
+### Instalar nesta maquina
+
+Nao precisa de maquina nova nem de elevacao. Requisitos ja atendidos pelo host
+de desenvolvimento: RAD Studio 22.0 com toolchain Linux64, WSL2 e as distros
+`Benchmark` e `PoseidonH2Spec`.
+
+```powershell
+# 1. baixar e extrair (versao atual: 2.337.0)
+$dir = 'D:ctions-runner'
+New-Item -ItemType Directory -Force $dir | Out-Null
+# baixe actions-runner-win-x64-<versao>.zip das releases de actions/runner
+# e extraia em $dir
+
+# 2. registrar (o token expira em 1h)
+$tok = gh api -X POST repos/herlondf/poseidon/actions/runners/registration-token --jq '.token'
+& "$dir\config.cmd" --url https://github.com/herlondf/poseidon --token $tok `
+  --name "delphi-$env:COMPUTERNAME" --labels "self-hosted,windows,delphi" `
+  --work "_work" --unattended --replace
+```
+
+### Por que tarefa agendada e nao servico
+
+`svc.cmd install` exige elevacao, e aqui o servico seria pior: os jobs de
+conformance usam WSL e Docker Desktop, que dependem da sessao interativa do
+usuario. Um servico rodando como SYSTEM nao enxerga essa sessao. A tarefa
+agendada roda no logon, na sessao certa, e sobrevive a reboot.
+
+```powershell
+$name = 'GitHubActionsRunner-Poseidon'
+$act = New-ScheduledTaskAction -Execute "$dir\run.cmd" -WorkingDirectory $dir
+$trg = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+        -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName $name -Action $act -Trigger $trg -Settings $set
+Start-ScheduledTask -TaskName $name
+```
+
+### Operacao
+
+```powershell
+Get-ScheduledTask -TaskName 'GitHubActionsRunner-Poseidon'   # estado
+Stop-ScheduledTask  -TaskName 'GitHubActionsRunner-Poseidon' # pausar (maquina ocupada)
+Start-ScheduledTask -TaskName 'GitHubActionsRunner-Poseidon' # retomar
+```
+
+O runner ocupa a maquina em cada push e PR na master, e a suite Win64 sobe
+servidores reais em portas locais. Em maquina de trabalho, `Stop-ScheduledTask`
+antes de uma sessao pesada evita disputa por CPU e porta.
+
 ## Linux conformance — one-time WSL provisioning
 
 The Linux stages reuse **already-provisioned** WSL distros (they never recreate a
