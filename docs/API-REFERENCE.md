@@ -1,4 +1,4 @@
-# Poseidon — API Reference
+﻿# Poseidon — API Reference
 
 Complete reference for the **public** API surface exposed through `uses Poseidon`
 (the facade unit) plus the middleware units under `middlewares/`. Signatures are
@@ -135,7 +135,7 @@ Path params use `:name` (e.g. `/users/:id`); read them with `Ctx.Param('id')`.
 | `ServerBanner: string` | Value sent in the `Server` response header. |
 | `TCPFastOpen: Boolean` | Enables TCP Fast Open on the listener. |
 | `PerCoreAccept: Boolean` | Enables per-core accept sockets (SO_REUSEPORT-style scaling). |
-| `SyncDispatch: Boolean` | Dispatches on the IO thread instead of the worker pool. |
+| `SyncDispatch: Boolean` | Dispatches on the IO thread instead of the worker pool. Also gates SQE batching on io_uring: without it the ring is slower than epoll. Non-blocking handlers only. |
 | `OnH2Push: TOnH2Push` | HTTP/2 server-push hook. |
 | `PIDFile: string` | Path of the PID file written on `Listen`, removed on `Stop`. |
 | `OnLog: TOnPoseidonLog` | General log callback. |

@@ -1,4 +1,4 @@
-# 08 — API Nativa
+﻿# 08 — API Nativa
 
 Referência de `TPoseidonServer` e seus tipos associados. Esta é a interface
 principal para construir serviços HTTP diretamente sobre o Poseidon, sem um
@@ -258,7 +258,7 @@ disponível — use um restart via gerenciador de serviços.
 | `ServerBanner` | `string` | Valor enviado no header `Server` da resposta, padrão `'Poseidon/1.0'` |
 | `TCPFastOpen` | `Boolean` | Habilita TCP Fast Open no listener, padrão False |
 | `PerCoreAccept` | `Boolean` | Habilita `SO_REUSEPORT` por core (Linux), padrão False |
-| `SyncDispatch` | `Boolean` | Despacha na thread de I/O em vez do worker pool |
+| `SyncDispatch` | `Boolean` | Despacha na thread de I/O em vez do worker pool. **Tambem controla o batching de SQEs no backend io_uring**: sem ele o ring submete uma syscall por operacao e fica mais lento que o epoll (medido 70.075 contra 52.446 req/s no mesmo binario). So para handlers nao-bloqueantes: um que espera banco trava a thread de I/O |
 | `PIDFile` | `string` | Caminho para gravar o arquivo de PID do processo, padrão `''` |
 
 > Veja [API-REFERENCE.md](../../API-REFERENCE.md) para a lista de propriedades

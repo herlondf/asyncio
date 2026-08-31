@@ -1,4 +1,4 @@
-# Poseidon — Referência da API
+﻿# Poseidon — Referência da API
 
 Referência completa da superfície de API **pública** exposta através de `uses Poseidon`
 (a unit de fachada) mais as units de middleware sob `middlewares/`. As assinaturas são
@@ -135,7 +135,7 @@ Parâmetros de rota usam `:name` (ex.: `/users/:id`); leia-os com `Ctx.Param('id
 | `ServerBanner: string` | Valor enviado no header de resposta `Server`. |
 | `TCPFastOpen: Boolean` | Habilita o TCP Fast Open no listener. |
 | `PerCoreAccept: Boolean` | Habilita sockets de accept por núcleo (escala no estilo SO_REUSEPORT). |
-| `SyncDispatch: Boolean` | Despacha na thread de IO em vez do pool de workers. |
+| `SyncDispatch: Boolean` | Despacha na thread de IO em vez do pool de workers. Tambem controla o batching de SQEs no io_uring: sem ele o ring fica mais lento que o epoll. So handlers nao-bloqueantes. |
 | `OnH2Push: TOnH2Push` | Hook de server-push do HTTP/2. |
 | `PIDFile: string` | Caminho do arquivo PID gravado no `Listen`, removido no `Stop`. |
 | `OnLog: TOnPoseidonLog` | Callback de log geral. |
