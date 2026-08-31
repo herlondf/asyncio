@@ -75,6 +75,8 @@ type
     FPadActive: array[0..14] of Integer;
     FIdleWorkers: Integer;  // atomic - threads blocked on semaphore
     FPadIdle: array[0..14] of Integer;
+    FPendingItems: Integer;  // atomic - itens enfileirados ainda nao retirados
+    FPadPending: array[0..14] of Integer;
     FSemaphore:     TSemaphore;
     FShutdown:      Integer;  // 0=running, 1=shutdown; atomic via TInterlocked
     procedure _WarmUpThreadLocaleCache;
@@ -140,6 +142,7 @@ begin
   FShutdown := 0;
   FActiveWorkers := 0;
   FIdleWorkers := 0;
+  FPendingItems := 0;
   FNextDeque := 0;
 
   FDequeCount := AMin;
@@ -225,6 +228,7 @@ begin
       if FDeques[LTarget].Queue.Count > 0 then
       begin
         AWrapper := FDeques[LTarget].Queue.Dequeue;
+        TInterlocked.Decrement(FPendingItems);
         Result := True;
         Exit;
       end;
@@ -279,7 +283,10 @@ begin
       LDeque^.Lock.Enter;
       try
         if LDeque^.Queue.Count > 0 then
+        begin
           LWrapper := LDeque^.Queue.Dequeue;
+          TInterlocked.Decrement(FPendingItems);
+        end;
       finally
         LDeque^.Lock.Leave;
       end;
@@ -358,6 +365,7 @@ var
   LWrapper: TWorkWrapper;
   LIdle: Integer;
   LActive: Integer;
+  LPending: Integer;
   LDequeIdx: Integer;
 begin
   // Aligned Integer reads are atomic on x64, and these three are only hints
@@ -386,15 +394,22 @@ begin
   FDeques[LDequeIdx].Lock.Enter;
   try
     FDeques[LDequeIdx].Queue.Enqueue(LWrapper);
+    TInterlocked.Increment(FPendingItems);
   finally
     FDeques[LDequeIdx].Lock.Leave;
   end;
 
   FSemaphore.Release(1);
 
+  // FIdleWorkers so cai quando o worker acorda do semaforo, o que leva muito
+  // mais tempo que uma rajada de Post. Decidir por ele fazia o pool ler os 2
+  // workers ainda como ociosos nos 6 Posts seguidos e nunca crescer: a fila
+  // acumulava e o spawn nunca era avaliado de novo, porque so Post avalia.
+  // Comparar com o backlog real de itens nao retirados enxerga a rajada.
   LIdle := FIdleWorkers;
   LActive := FActiveWorkers;
-  if (LIdle = 0) and (LActive < FMaxWorkers) then
+  LPending := TInterlocked.Add(FPendingItems, 0);
+  if (LPending > LIdle) and (LActive < FMaxWorkers) then
     _SpawnWorker(LDequeIdx);
 end;
 
@@ -434,7 +449,10 @@ begin
       FDeques[I].Lock.Enter;
       try
         if FDeques[I].Queue.Count > 0 then
+        begin
           LWrapper := FDeques[I].Queue.Dequeue;
+          TInterlocked.Decrement(FPendingItems);
+        end;
       finally
         FDeques[I].Lock.Leave;
       end;
