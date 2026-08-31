@@ -359,6 +359,10 @@ begin
   LCtx.Body := nil;
   LCtx.ExtraHeaders := nil;
   LCtx.Handled := False;
+  // LCtx e local: campo nao-managed nasce com lixo de pilha. Sem este reset,
+  // Ctx.Defer via o flag ligado e recusava a PRIMEIRA chamada da requisicao
+  // com "called more than once", devolvendo 500 de forma intermitente.
+  LCtx.Deferred := False;
 
   LRoute := FRouter.Lookup(AReq.Method, AReq.Path, LCtx);
 
