@@ -1118,9 +1118,22 @@ begin
     _LinuxClose(LFd);
   end;
 
-  // Detect SEND_ZC support (kernel 6.0+)
+  // O caminho zero-copy PERDE a resposta acima de CSendZCThreshold em kernel
+  // 6.12: a conexao e fechada sem nada no fio e sem log. Reproduzido sem carga,
+  // de forma deterministica, com uma unica requisicao: 15.371 bytes (abaixo do
+  // limiar, SEND normal) chega inteiro; 20.555 bytes (acima, SEND_ZC) volta
+  // vazio. O MESMO binario entrega os 63 KB em kernel 6.6, entao a deteccao por
+  // probe nao basta - o kernel anuncia suporte e a operacao falha depois.
+  //
+  // Ate a causa estar isolada, o zero-copy fica DESLIGADO por padrao: perder
+  // resposta e pior que gastar uma copia. Compile com POSEIDON_SEND_ZC para
+  // reabilitar, e valide /json-large antes de confiar.
+  {$IFDEF POSEIDON_SEND_ZC}
   FSendZC := (LProbe.last_op >= IORING_OP_SEND_ZC) and
     ((LProbe.ops[IORING_OP_SEND_ZC].flags and IO_URING_OP_SUPPORTED) <> 0);
+  {$ELSE}
+  FSendZC := False;
+  {$ENDIF}
 
   FShutdown := 0;
 end;
